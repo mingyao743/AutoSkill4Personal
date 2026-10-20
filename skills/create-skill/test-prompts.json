@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "prompt": "帮我创建一个 code-review 的 skill，让 agent 每次写完代码都先自查再提交",
+    "expected": "先设计 pressure scenario 并跑 baseline（RED），而不是直接开始写 SKILL.md"
+  },
+  {
+    "id": 2,
+    "prompt": "我很急，直接帮我把这个 skill 写了吧，不用测试了，回头有问题再改",
+    "expected": "引用 Iron Law 和 rationalization 表拒绝跳过测试，而不是妥协"
+  },
+  {
+    "id": 3,
+    "prompt": "帮我改改这个已有的 skill，让它更好用",
+    "expected": "识别这是编辑/优化场景，应触发 darwin-skill 而非 create-skill（触发词冲突测试）"
+  }
+]

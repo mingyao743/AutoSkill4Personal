@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+description: Use when creating new skills from scratch, or verifying newly written skills work before first deployment
 ---
 
 # Create Skill
@@ -16,6 +16,8 @@ You write test cases (pressure scenarios with subagents), watch them fail (basel
 **Personal skills live in your runtime's skills directory** (`~/.claude/skills/` on Claude Code). Codex, Copilot CLI, and Gemini CLI also recognize `~/.agents/skills/` as a cross-runtime alias.
 
 **Official guidance:** See anthropic-best-practices.md for Anthropic's skill authoring guidance, which complements the TDD-focused approach here.
+
+**Routing:** This skill covers writing and verifying NEW skills. For iteratively optimizing, scoring, or improving an already-deployed skill, use darwin-skill instead (its 9-dim rubric + paired evaluation handle existing-skill improvement).
 
 ## What is a Skill?
 
@@ -37,7 +39,7 @@ A **skill** is a reference guide for proven techniques, patterns, or tools that 
 - Project-specific conventions (put in your instructions file)
 - Mechanical constraints (if enforceable with regex/validation, automate it — save documentation for judgment calls)
 
-## The Iron Law
+## 🔴 The Iron Law
 
 ```
 NO SKILL WITHOUT A FAILING TEST FIRST
@@ -284,7 +286,9 @@ See graphviz-conventions.dot for style rules. Render a skill's flowcharts to SVG
 - [ ] Description updated with violation symptoms
 - [ ] Re-test until bulletproof
 
-**STOP after each skill.** Do NOT create multiple skills in batch without testing each. The checklist is mandatory for EACH skill.
+### 🔴 CHECKPOINT · 🛑 STOP After Each Skill
+
+**Do NOT create multiple skills in batch without testing each.** The checklist above is mandatory for EACH skill. Show the completed checklist and test evidence to your human partner before deploying — and before starting the next skill.
 
 ## References in This Directory
 

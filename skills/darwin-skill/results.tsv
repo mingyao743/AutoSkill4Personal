@@ -1,0 +1,3 @@
+timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
+2026-10-20T13:33	0f1a37a	create-skill	-	78.1	baseline	-	dim8=dry_run(无子agent)；评分者=同session修改者(bias#1)	dry_run
+2026-10-20T13:40	HEAD	create-skill	78.1	78.1(未重评)	keep	dim1+dim4	manual fix: description收窄去触发冲突+补视觉检查点; 用户批准; 无paired环境	dry_run
