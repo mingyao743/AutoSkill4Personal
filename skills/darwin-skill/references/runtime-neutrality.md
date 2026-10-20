@@ -6,11 +6,11 @@
 
 ## 背景
 
-花叔的 skills 基于 Anthropic 开放的 [Agent Skills](https://agentskills.io) 协议，应当能在 Claude Code、Codex、Cursor、OpenClaw、Hermes Agent、CodeBuddy、Workbuddy、Gemini CLI、OpenCode 等 50+ skills-compatible runtime 上通用。
+本套 skills 基于 Anthropic 开放的 [Agent Skills](https://agentskills.io) 协议，应当能在 Claude Code、Codex、Cursor、OpenClaw、Hermes Agent、CodeBuddy、Workbuddy、Gemini CLI、OpenCode 等 50+ skills-compatible runtime 上通用。
 
 这是 skill 分发力的根本——一个被误判为「单一 runtime 绑定」的 skill，会被其他 agent 直接拒绝安装（实例：nuwa-skill 因 README 写「在 Claude Code 里使用」被 Marvis agent 拒绝）。
 
-**适用范围**：除非 skill 名字明确声明绑定单一 runtime（如 `huashu-slides-codex`、`xxx-for-claude-code`），所有 skill 必须通过本审查。
+**适用范围**：除非 skill 名字明确声明绑定单一 runtime（如 `slides-codex`、`xxx-for-claude-code`），所有 skill 必须通过本审查。
 
 ---
 
@@ -44,7 +44,7 @@
 不是所有 Claude-Code 相关字符都要清除。下面这些是**正当出现**的，不算红灯：
 
 1. **Frontmatter `description` 里的中英文触发词**——这是 skill 入口，其他 runtime 解析 frontmatter 时同样能匹配
-2. **花叔生态内部联动的 skill 名引用**——如「调用 huashu-design」「跟 darwin-skill 配套」
+2. **同仓库/同作者生态联动的 skill 名引用**——如「调用 design-skill」「跟 darwin-skill 配套」
 3. **明确标注的 runtime-specific 章节**——如「### 仅 Claude Code 优化（按需触发）」+ 解释清楚是 nice-to-have
 4. **commit message、changelog、内部脚本**——不属于用户读到的 skill 内容
 5. **引用/演示该 pattern 本身**——讲解红灯规则、列反例、给出 grep 命令时，必然要字面写出「在 Claude Code 里」「Claude Code skill」这些措辞。这是**把措辞当被描述的对象**，不是**把单 runtime 当指令要求读者用**，属假阳性。典型受害者是 darwin-skill 自己（本审查章节就含这些字样）。

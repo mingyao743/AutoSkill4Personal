@@ -1,6 +1,6 @@
 ---
 name: darwin-skill
-description: "Darwin Skill 2.0 (达尔文.skill 2.0): autonomous skill optimizer, v2.0 integrates Microsoft Research SkillLens (arXiv 2605.23899) 9-dim rubric + SkillOpt (arXiv 2605.23904) validation-gated design + human-in-the-loop checkpoints. Evaluates SKILL.md files using a 9-dimension rubric (structure + effectiveness + meta-skill blacklists), runs hill-climbing with git version control, spawns independent judge agents for blind evaluation, validates improvements through test prompts with auto-break on diminishing returns, and generates visual result cards. Use when user mentions \"优化skill\", \"skill评分\", \"自动优化\", \"auto optimize\", \"skill质量检查\", \"达尔文\", \"darwin\", \"帮我改改skill\", \"skill怎么样\", \"提升skill质量\", \"skill review\", \"skill打分\"."
+description: "Use when the user wants to optimize, evaluate, score, review, or iteratively improve agent skills (SKILL.md files), or mentions \"优化skill\", \"skill评分\", \"自动优化\", \"auto optimize\", \"skill质量检查\", \"skill打分\", \"帮我改改skill\", \"skill怎么样\", \"提升skill质量\", \"skill review\", \"skill evaluation\", \"skill scoring\", \"skill optimizer\", \"optimize skill\", \"darwin\", \"达尔文\"."
 ---
 
 # Darwin Skill 2.0
@@ -46,7 +46,7 @@ autoresearch 的精髓：
 
 | # | 维度 | 权重 | 评分标准 |
 |---|------|------|---------|
-| 7 | **整体架构** | 12 | 结构层次清晰、不冗余不遗漏、与花叔生态一致；**冗余/AI腔废话段落（说白了/换句话说/首先其次综上等花叔禁用词）出现一处扣 1 分** |
+| 7 | **整体架构** | 12 | 结构层次清晰、不冗余不遗漏；**冗余/AI腔废话段落（说白了/换句话说/首先其次综上等套话）出现一处扣 1 分** |
 | 8 | **实测表现** | 23 | 用测试prompt跑一遍，输出质量是否符合skill宣称的能力 |
 
 ### Meta-skill 维度（6分）— 反例与黑名单
@@ -67,7 +67,7 @@ autoresearch 的精髓：
 rubric 设计依据来自 **SkillLens 论文（arXiv 2605.23899）** + **本机 controlled study**：
 
 - SkillLens 发现 LLM-as-judge 准确率仅 46.4%（接近随机），加入 meta-skill 三维度后升到 73.8%
-- 本机对 huashu-research 做 4 类 degradation → 5 个独立 judge 盲测一致 V1>V2，Δ 均值 +46.5（5/5 high confidence）
+- 本机对一支 170 行、独立度高的 skill 做 4 类 degradation → 5 个独立 judge 盲测一致 V1>V2，Δ 均值 +46.5（5/5 high confidence）
 
 **结论**：rubric 能识别 gross degradation，但 fine-grained quality difference 仍不可信，**重要决策必须人审**。
 
@@ -102,7 +102,7 @@ grep -nE "(在 Claude Code|Claude Code skill|Claude Code 用户|Cursor only|Code
 
 ### 例外（允许的「Claude Code 痕迹」）
 
-frontmatter 触发词、花叔生态内部 skill 名引用、明确标注 runtime-specific 章节、commit message——这些正当出现，不算红灯。
+frontmatter 触发词、同仓库/同作者生态的 skill 名引用、明确标注 runtime-specific 章节、commit message——这些正当出现，不算红灯。
 
 → 红灯/绿灯完整对照表 + 例外清单详细规则 + Phase 1/2/3 各阶段审查时机见 [references/runtime-neutrality.md](references/runtime-neutrality.md)
 
@@ -113,8 +113,12 @@ frontmatter 触发词、花叔生态内部 skill 名引用、明确标注 runtim
 ### Phase 0: 初始化
 
 ```
+0. 环境自检（一次探测，结果告知用户，不静默降级）：
+   - git 可用？→ 决定走「分支 + revert」还是「文件备份」降级路径
+   - node / npx 可用？→ 决定成果卡片能否截图
+   - 子agent 可用？→ 决定 dim8 走 full_test 还是 dry_run（dry_run 需打警告）
 1. 确认优化范围：
-   - 全部skills → 扫描 .claude/skills/*/SKILL.md
+   - 全部skills → 扫描 skills 根目录（默认：本 skill 所在目录的上一级；或用户指定路径）下 */SKILL.md
    - 指定skills → 用户指定列表
 2. 创建 git 分支：auto-optimize/YYYYMMDD-HHMM
 3. 初始化 results.tsv（如不存在）
@@ -170,8 +174,8 @@ for each skill in 优化范围:
 ┌──────────────────────────┬───────┬──────────────┬──────────────┐
 │ Skill                    │ Score │ 结构短板      │ 效果短板      │
 ├──────────────────────────┼───────┼──────────────┼──────────────┤
-│ huashu-proofreading      │ 78    │ 边界条件      │ 测试prompt2  │
-│ huashu-slides            │ 72    │ 指令具体性    │ baseline持平  │
+│ proofreading-skill       │ 78    │ 边界条件      │ 测试prompt2  │
+│ slides-skill             │ 72    │ 指令具体性    │ baseline持平  │
 ├──────────────────────────┼───────┼──────────────┼──────────────┤
 │ 平均                     │ 75    │              │              │
 └──────────────────────────┴───────┴──────────────┴──────────────┘
@@ -272,8 +276,8 @@ for each skill:
 ┌──────────────────────────┬────────┬────────┬────────┐
 │ Skill                    │ Before │ After  │ Δ      │
 ├──────────────────────────┼────────┼────────┼────────┤
-│ huashu-proofreading      │ 78     │ 87     │ +9     │
-│ huashu-slides            │ 72     │ 83     │ +11    │
+│ proofreading-skill       │ 78     │ 87     │ +9     │
+│ slides-skill             │ 72     │ 83     │ +11    │
 ├──────────────────────────┼────────┼────────┼────────┤
 │ 平均                     │ 75     │ 85     │ +10    │
 └──────────────────────────┴────────┴────────┴────────┘
@@ -289,9 +293,9 @@ for each skill:
 
 ```tsv
 timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
-2026-03-31T10:00	baseline	huashu-proofreading	-	78	baseline	-	初始评估	full_test
-2026-03-31T10:05	a1b2c3d	huashu-proofreading	78	84	keep	边界条件	补充fallback	full_test
-2026-03-31T10:10	b2c3d4e	huashu-proofreading	84	82	revert	指令具体性	过度细化	dry_run
+2026-03-31T10:00	baseline	proofreading-skill	-	78	baseline	-	初始评估	full_test
+2026-03-31T10:05	a1b2c3d	proofreading-skill	78	84	keep	边界条件	补充fallback	full_test
+2026-03-31T10:10	b2c3d4e	proofreading-skill	84	82	revert	指令具体性	过度细化	dry_run
 ```
 
 `eval_mode` 列：`paired`（同 judge 比改前/改后，**keep/revert 权威依据**）｜`full_test`（子agent 跑 prompt）｜`dry_run`（模拟推演、仅供参考）。
@@ -299,13 +303,13 @@ paired 行：`new_score` 栏记 vote 比数（如 `3-0 better`），`note` 记�
 ```tsv
 2026-06-10T06:30	paired	some-skill	（绝对 87.3→78.8 = judge 噪音）	3-0 better	paired 推翻单评假退步	paired
 ```
-文件位置：`.claude/skills/darwin-skill/results.tsv`
+文件位置：本 skill 目录下 `results.tsv`
 
 ---
 
 ## 实战 high-leverage 操作（精髓速查）
 
-4 条经实战验证（huashu-gpt-image +10.85 / huashu-weread-advisor +14.9 / claude-design +16.5）。详细案例数据见 [references/skilllens-evidence.md](references/skilllens-evidence.md) 的「HL 实战案例」节。
+4 条经实战验证（+10.85 / +14.9 / +16.5 等案例）。详细案例数据见 [references/skilllens-evidence.md](references/skilllens-evidence.md) 的「HL 实战案例」节。
 
 - **HL-1（dim4）显性视觉标记是杠杆**：加 🔴 CHECKPOINT / 🛑 STOP，靠「必须」措辞不行——LLM 解析时扫描视觉标记。4 行改动撬动 dim4 +3 分
 - **HL-2（dim3）if-then 三段式 fallback 表**：把「症状/解法」两列升级为「触发条件 / 一线修复 / 仍失败兜底」三段式。SkillLens failure-mechanism encoding 维度的落地
@@ -394,10 +398,10 @@ paired 行：`new_score` 栏记 vote 比数（如 `3-0 better`），`note` 记�
 2. **不引入新依赖** — 不添加skill原本没有的scripts或references文件
 3. **每轮只改一个维度** — 避免多个变更导致无法归因
 4. **保持文件大小合理** — 优化后SKILL.md不应超过原始大小的150%
-5. **尊重花叔风格** — 中文为主、简洁为上
+5. **尊重被优化 skill 的原有语言与风格** — 中文 skill 保持中文、英文 skill 保持英文；简洁为上
 6. **可回滚** — 所有改动在git分支上，用git revert而非reset --hard
 7. **评分独立性** — 效果维度必须用子agent或至少干跑验证，不能在同一上下文里「改完直接评」
-8. **Runtime 中立性** — skill 必须能在 Claude Code、Codex、Cursor、OpenClaw、Hermes 等任何 skills-compatible runtime 中正常运行。除非 skill 名明确绑定单一 runtime（如 `xxx-codex`、`huashu-slides-codex`），任何「在 Claude Code 里」「Claude Code skill」「单一 badge 钉死」「安装命令只给 `.claude/skills/` 一种路径」都视为 gate 不通过，须在 P0 优先修复（详见「Runtime 适配性审查」章节）
+8. **Runtime 中立性** — skill 必须能在 Claude Code、Codex、Cursor、OpenClaw、Hermes 等任何 skills-compatible runtime 中正常运行。除非 skill 名明确绑定单一 runtime（如 `xxx-codex`、`slides-codex`），任何「在 Claude Code 里」「Claude Code skill」「单一 badge 钉死」「安装命令只给 `.claude/skills/` 一种路径」都视为 gate 不通过，须在 P0 优先修复（详见「Runtime 适配性审查」章节）
 
 ---
 
@@ -412,7 +416,7 @@ paired 行：`new_score` 栏记 vote 比数（如 `3-0 better`），`note` 记�
 
 ### 单个优化
 ```
-用户："优化 huashu-slides 这个skill"
+用户："优化 slides 这个skill"
 → 只对指定skill执行 Phase 0.5-2
 ```
 
@@ -480,11 +484,12 @@ paired 行：`new_score` 栏记 vote 比数（如 `3-0 better`），`note` 记�
    - data-field="date" → 当前日期
 3. 随机选择风格：hash 设为 swiss/terminal/newspaper 之一
 4. 用 scripts/screenshot.mjs 截图（2x 高清，只截 .card 元素，自动 open 图片）：
-   node .claude/skills/darwin-skill/scripts/screenshot.mjs \
+   node <本skill目录>/scripts/screenshot.mjs \
      /abs/path/to/card.html /abs/path/to/output.png
    # 回退方案（脚本失败时）：
    npx playwright screenshot "file:///path/to/card.html#[theme]" \
      output.png --viewport-size=960,1280 --wait-for-timeout=2000
+   # 终极兑底（node/npx 均不可用）：跳过 PNG 截图，改输出文本版战报（分数表+改动摘要）
 5. 提示用户查看成果卡片 PNG
 
 ### 资源文件速查
