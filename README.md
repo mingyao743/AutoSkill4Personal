@@ -48,6 +48,7 @@
 
 - **增量整合（日常主路径）**：原子即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到 `knowledge/intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→原子退队列下轮重做——无锁并发，冲突只重做不丢失）
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
+- **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
 ## skill 保鲜（darwin 体检）
 
