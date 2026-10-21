@@ -1,0 +1,22 @@
+{
+  "23fe5fe06df861a9": {
+    "inputHash": "23fe5fe06df861a9",
+    "clusters": []
+  },
+  "a856164ca9820e70": {
+    "inputHash": "a856164ca9820e70",
+    "clusters": [
+      {
+        "ids": [
+          "atom_5ed82a2616e8",
+          "atom_236c6f7cb9dd"
+        ],
+        "merged_content": "vLLM 启动时 CUDA graph capture 失败排查：先 --enforce-eager 确认是 capture 问题 → 降 gpu-memory-utilization 释放 headroom → 换 VLLM_ATTENTION_BACKEND/升级 kernel → dmesg 查 Xid。五类常见原因：① capture 阶段显存 headroom 不足（utilization 过高或其他进程中途占显存），最常见；② 捕获期间 kernel 做 cudaMalloc/host 同步/.item() 等不兼容操作；③ 更早的异步错误毒化 stream；④ TP 下 custom allreduce 回退或 P2P 禁用；⑤ 驱动过旧。"
+      }
+    ]
+  },
+  "fcb296263ed8bb51": {
+    "inputHash": "fcb296263ed8bb51",
+    "clusters": []
+  }
+}

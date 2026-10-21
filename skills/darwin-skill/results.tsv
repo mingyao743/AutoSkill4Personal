@@ -1,3 +1,10 @@
 timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
 2026-10-20T13:33	0f1a37a	create-skill	-	78.1	baseline	-	dim8=dry_run(无子agent)；评分者=同session修改者(bias#1)	dry_run
 2026-10-20T13:40	HEAD	create-skill	78.1	78.1(未重评)	keep	dim1+dim4	manual fix: description收窄去触发冲突+补视觉检查点; 用户批准; 无paired环境	dry_run
+2026-06-11T11:50	backup-c76a6fc8	pi-ops	-	75.4	baseline	-	dim8=dry_run(无子agent); env非git→文件备份SKILL.md.bak.20260611-hcheck; runtime_scan=clean	dry_run
+2026-06-11T11:55	paired-r1	pi-ops	75.4	2-0 better	keep	dim2	新增排障路由表(症状→先读哪个文件); vote: glm=clear/deepseek=slight; kimi-k2模型403剔除
+2026-06-11T12:05	paired-r2	pi-ops	78.8	3-0 better	keep	dim4	增量整合规则加显性🔴CHECKPOINT/🛑STOP(HL-1); vote: 2 clear+1 slight
+2026-06-11T12:15	paired-r3	pi-ops	80.8	3-0 better	keep	dim3	异常速查三段式表(HL-2); vote: 1 clear+2 slight; judge指出错别字已修正
+2026-06-11T12:25	paired-r3b	pi-ops	80.8	3-0 better	keep	dim3	精简后重评: 表格语义不变去冗余; vote: 1 clear+2 slight; 体积合规4857<4869
+2026-06-11T12:30	paired-r3c	pi-ops	80.8	3-0 better	keep	dim3	定稿精简版复评(去INTEGRATE绝对路径等); vote: 1 clear+2 slight(多数slight第1轮)
+2026-06-11T12:40	final	pi-ops	75.4	85.7	keep	-	Phase3汇总: dim8真实链路full_test 2/2(路由正确+关键点命中); 3轮paired全keep; HL-4见好就收

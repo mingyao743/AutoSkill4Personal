@@ -1,0 +1,10 @@
+{
+  "name": "autoskill",
+  "version": "0.1.0",
+  "description": "把 pi 对话沉淀为可路由 skill：对话 → 知识原子 → 卡片 → skill → 持续体检",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extensions/knowledge-capture/index.ts"],
+    "skills": ["./skills"]
+  }
+}

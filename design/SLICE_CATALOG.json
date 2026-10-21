@@ -1,0 +1,103 @@
+{
+  "$id": "https://auto-skill.local/schemas/slice-catalog.json",
+  "title": "AutoSkill Slice Catalog",
+  "description": "5 类知识 × 44 切片清单。atom_type 合法枚举源: 抽取prompt注入本清单约束LLM只产出合法切片, 后置校验atom_type必须命中本清单。与 atom.schema.json 的关系: schema 定原子结构(13基础字段+按category特化), catalog 定 atom_type 取值域。命名约定: atom_type 值 = 'XX切片'(中文原样, 与用户原始清单一致)。schema_fields 指明该切片的内容应填入 atom.schema.json 哪个特化字段; 空数组=无专属特化字段, 由 content 承载。",
+  "version": 1,
+  "total_slices": 44,
+  "categories": [
+    {
+      "category": "01",
+      "name": "业务认知",
+      "subtitle": "原理、口径、背景、知识卡片",
+      "purpose": "回答「是什么、为什么、边界」",
+      "atom_class": "概念、定义、约束类原子",
+      "assembly": "一组相关切片打包成一张知识卡片；多张卡片组成业务认知知识库",
+      "slices": [
+        { "atom_type": "概念名称切片", "definition": "术语 / 指标 / 业务对象名称", "schema_fields": ["concept_name"] },
+        { "atom_type": "概念释义切片", "definition": "术语文字定义", "schema_fields": ["definition"] },
+        { "atom_type": "口径切片", "definition": "统计范围、计算公式、包含 / 排除范围", "schema_fields": ["definition"] },
+        { "atom_type": "规则切片", "definition": "硬性约束、政策、权限要求", "schema_fields": ["rules"] },
+        { "atom_type": "背景切片", "definition": "产生原因、设计初衷、业务目标", "schema_fields": [] },
+        { "atom_type": "关联对象切片", "definition": "上下游、关联系统、关联概念", "schema_fields": [] },
+        { "atom_type": "边界切片", "definition": "适用范围、不适用场景、例外边界", "schema_fields": ["boundary"] },
+        { "atom_type": "价值切片", "definition": "规则 / 概念存在的意义", "schema_fields": [] }
+      ]
+    },
+    {
+      "category": "02",
+      "name": "操作SOP",
+      "subtitle": "一页纸为主，流程图优先",
+      "purpose": "回答「标准流程怎么做」",
+      "atom_class": "动作、节点、判断类原子",
+      "assembly": "按时序 + 分支逻辑串联切片，形成流程清单 / 流程图",
+      "slices": [
+        { "atom_type": "前置条件切片", "definition": "流程启动前提", "schema_fields": ["prerequisites"] },
+        { "atom_type": "步骤编号切片", "definition": "顺序序号", "schema_fields": ["step_order"] },
+        { "atom_type": "动作切片", "definition": "具体执行操作", "schema_fields": ["step", "command"] },
+        { "atom_type": "操作对象切片", "definition": "系统 / 文档 / 对接人", "schema_fields": [] },
+        { "atom_type": "输入物切片", "definition": "步骤所需资料", "schema_fields": ["inputs"] },
+        { "atom_type": "输出物切片", "definition": "步骤产出结果", "schema_fields": ["outputs"] },
+        { "atom_type": "核查点切片", "definition": "校验合格标准", "schema_fields": ["checkpoints"] },
+        { "atom_type": "分支判断切片", "definition": "if-else 判断条件", "schema_fields": [] },
+        { "atom_type": "异常现象切片", "definition": "潜在故障", "schema_fields": [] },
+        { "atom_type": "异常处置切片", "definition": "故障对应方案", "schema_fields": ["exceptions"] },
+        { "atom_type": "责任人切片", "definition": "节点负责人（可选）", "schema_fields": [], "optional": true }
+      ]
+    },
+    {
+      "category": "03",
+      "name": "模板库",
+      "subtitle": "文档 / 表格 / PPT / 邮件模板，带示例",
+      "purpose": "交付物空白骨架，直接填空使用",
+      "atom_class": "结构字段、填写要求类原子",
+      "assembly": "按照文档层级排布切片，生成空白模板框架",
+      "slices": [
+        { "atom_type": "模块标题切片", "definition": "文档章节 / 区块名称", "schema_fields": ["template_name"] },
+        { "atom_type": "字段名称切片", "definition": "待填写条目", "schema_fields": ["fields.name"] },
+        { "atom_type": "字段类型切片", "definition": "文本 / 数字 / 单选 / 多选 / 附件", "schema_fields": ["fields.type"] },
+        { "atom_type": "必填标识切片", "definition": "必填 / 选填", "schema_fields": ["fields.required"] },
+        { "atom_type": "填写说明切片", "definition": "字段填写规范", "schema_fields": ["fields.description"] },
+        { "atom_type": "填写示例切片", "definition": "单条内容样例", "schema_fields": ["fields.example"] },
+        { "atom_type": "格式规范切片", "definition": "字体、命名、单位、排版", "schema_fields": ["skeleton"] },
+        { "atom_type": "引用来源切片", "definition": "字段对应的业务认知规则", "schema_fields": [] }
+      ]
+    },
+    {
+      "category": "04",
+      "name": "案例与样例",
+      "subtitle": "脱敏成品，参考范本",
+      "purpose": "完整填好的交付物，作为对标参考",
+      "atom_class": "真实上下文 + 结果类原子",
+      "assembly": "将整套成品切片打包，保留完整上下文，形成参考范本",
+      "slices": [
+        { "atom_type": "案例基础信息切片", "definition": "时间、场景、目标、范围（脱敏）", "schema_fields": ["case_name", "background"] },
+        { "atom_type": "方案内容切片", "definition": "完整文本 / 数据 / 图表", "schema_fields": ["solution"] },
+        { "atom_type": "执行过程切片", "definition": "关键动作简述", "schema_fields": ["process"] },
+        { "atom_type": "结果数据切片", "definition": "最终成效指标", "schema_fields": ["result"] },
+        { "atom_type": "亮点切片", "definition": "可复用优秀做法", "schema_fields": ["highlights"] },
+        { "atom_type": "局限切片", "definition": "本次案例存在不足", "schema_fields": ["limitations"] },
+        { "atom_type": "适用条件切片", "definition": "案例可复用前提", "schema_fields": ["applicable_conditions"] },
+        { "atom_type": "参考引用切片", "definition": "对应 SOP / 模板 / 业务规则索引", "schema_fields": ["refs"] }
+      ]
+    },
+    {
+      "category": "05",
+      "name": "问题与复盘",
+      "subtitle": "踩坑记录、风险清单、复盘笔记",
+      "purpose": "沉淀教训、风险、优化方案",
+      "atom_class": "问题、根因、措施类原子",
+      "assembly": "围绕事件全链路串联切片，形成标准化踩坑复盘文档",
+      "slices": [
+        { "atom_type": "问题现象切片", "definition": "客观事实描述", "schema_fields": ["problem"] },
+        { "atom_type": "发生场景切片", "definition": "所处流程与业务环境", "schema_fields": ["scenario"] },
+        { "atom_type": "影响范围切片", "definition": "后果与影响等级", "schema_fields": ["impact"] },
+        { "atom_type": "根因切片", "definition": "深层根本原因", "schema_fields": ["root_cause"] },
+        { "atom_type": "临时对策切片", "definition": "紧急处置手段", "schema_fields": ["temp_fix"] },
+        { "atom_type": "永久预防切片", "definition": "长期规避方案", "schema_fields": ["permanent_fix"] },
+        { "atom_type": "风险预判切片", "definition": "潜在隐患、概率、影响等级", "schema_fields": [] },
+        { "atom_type": "改进项切片", "definition": "优化 SOP / 模板 / 业务认知的建议", "schema_fields": ["improvements"] },
+        { "atom_type": "复盘结论切片", "definition": "提炼总结经验", "schema_fields": [] }
+      ]
+    }
+  ]
+}
