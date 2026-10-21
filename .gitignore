@@ -1,0 +1,7 @@
+# 知识库数据（个人资产，不入库）
+knowledge/
+
+# 运行时产物
+*.log
+.DS_Store
+node_modules/
