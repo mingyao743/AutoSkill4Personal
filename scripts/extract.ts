@@ -10,8 +10,8 @@
  *   --dry              只跑不写（验证用）
  *   --model <id>       抽取模型（默认 ~/.pi/agent/settings.json 的主模型）
  *   --limit <n>        本次最多处理窗口数（控成本）
- *   --window-entries <n>  每窗最大消息数（默认 100）
- *   --max-chars <n>    每窗字符预算（默认 80000）
+ *   --window-entries <n>  每窗最大消息数（默认 50）
+ *   --max-chars <n>    每窗字符预算（默认 40000）
  *   --show-prompt      打印首个窗口的序列化文本前 2000 字符后退出（调试）
  *
  * 运行：node --experimental-strip-types scripts/extract.ts <...>
@@ -52,8 +52,8 @@ for (let i = 0; i < args.length; i++) {
 const dryRun = flags.get("--dry") === "true";
 const limit = flags.has("--limit") ? Number(flags.get("--limit")) : Infinity;
 const model = flags.get("--model");
-const windowEntries = flags.has("--window-entries") ? Number(flags.get("--window-entries")) : 100;
-const maxChars = flags.has("--max-chars") ? Number(flags.get("--max-chars")) : 80_000;
+const windowEntries = flags.has("--window-entries") ? Number(flags.get("--window-entries")) : 50;
+const maxChars = flags.has("--max-chars") ? Number(flags.get("--max-chars")) : 40_000;
 
 if (positional.length === 0) {
   console.error("用法: node --experimental-strip-types scripts/extract.ts <session.jsonl | 目录> [--dry] [--limit n] [--model id]");
