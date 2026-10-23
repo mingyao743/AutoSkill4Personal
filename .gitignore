@@ -1,5 +1,5 @@
-# 知识库数据（个人资产，不入库）
-knowledge/
+# 本地归档的旧数据副本（唯一事实源在 ~/.pi/agent/data/autoskill/knowledge/）
+knowledge-archive-*/
 
 # 运行时产物
 *.log
