@@ -77,3 +77,37 @@ ${catalogText}
 export function buildUserPrompt(windowText: string): string {
   return `以下是对话窗口内容：\n\n${windowText}\n\n请抽取知识原子，只输出 JSON。`;
 }
+
+// ---------------- skill 使用反馈判定（usage 审计用） ----------------
+
+/** 窗口是否可能含 skill 使用（无 SKILL.md 字样则直接跳过反馈扫描，零额外成本） */
+export function windowMentionsSkill(windowText: string): boolean {
+  return windowText.includes("SKILL.md");
+}
+
+export interface SkillVerdictRaw {
+  skill: string; // domain 名（从路径 skills/<domain>/SKILL.md 提取）
+  verdict: "accepted" | "rejected" | "unclear";
+  evidence: string; // ≤200 字，窗口内的原文依据
+}
+
+export function buildSkillFeedbackSystemPrompt(): string {
+  return `你是 skill 使用审计器。输入是一段 pi coding agent 的对话窗口文本。
+窗口中若模型读取了某个 skill 的 SKILL.md（形如 skills/<domain>/SKILL.md），判断后续走向：
+
+- accepted：读取后，user 或 assistant 的言行**遵循**了该 skill 的指引/流程/概念体系（按其步骤执行、引用其术语、产出符合其产出契约）。
+- rejected：读取后，user **修正或推翻**了该 skill 的指引（明确说不对/换方案），或后续行为明显背离其流程且被现实打回。
+- unclear：读而未用（加载后没走它的流程）、证据不足、或读取后窗口就结束了。
+
+规则：
+1. 只判定窗口内真实出现过的 skill；路径没匹配到 <domain> 的忽略。
+2. verdict 必须有原文依据：accepted 引述遵循动作，rejected 引述修正言论。没有依据就不判。
+3. 一个 skill 在窗口内只输出一条结论性判定（多处交互取最终权重最大的一次）。
+4. 宁可 unclear 也不要猜。
+5. 只输出一个 JSON 对象 {"verdicts":[...]}，不要 markdown 代码块、不要解释文字；窗口内没有使用任何 skill 则输出 {"verdicts":[]}。
+字段：skill, verdict, evidence（≤200字）。`;
+}
+
+export function buildSkillFeedbackUserPrompt(windowText: string): string {
+  return `以下是对话窗口内容：\n\n${windowText}\n\n请判定 skill 使用反馈，只输出 JSON。`;
+}

@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { kbDir, loadAtoms, logError } from "./atom-store.ts";
 import { loadSkillState, saveSkillState } from "./skill-state.ts";
+import { appendUsage } from "./usage-store.ts";
 
 export interface SkillPatch {
   patch_id: string;
@@ -116,6 +117,7 @@ export function applyPatches(): ApplyReport {
       st.domainEdits = st.domainEdits ?? {};
       st.domainEdits[patch.domain] = (st.domainEdits[patch.domain] ?? 0) + 1; // darwin 体检触发计数
       saveSkillState(st);
+      appendUsage([{ ts: new Date().toISOString(), session: "apply", skill: patch.domain, event: "edited" }]);
       rmSync(join(intakeDir(), file)); // 已应用：出队列
       report.applied.push(patch.patch_id);
     } catch (e) {

@@ -25,6 +25,7 @@ import { rescueAtoms, generateCompactionSummary } from "../../lib/compaction-res
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../lib/llm.ts";
 import { applyPatches } from "../../lib/apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "../../lib/skill-state.ts";
+import { appendUsage } from "../../lib/usage-store.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXTRACT_CLI = join(REPO_ROOT, "scripts", "extract.ts");
@@ -49,7 +50,7 @@ function kbStats(): string {
   const draft = atoms.filter((a) => a.status === "draft").length;
   const published = atoms.filter((a) => a.status === "published").length;
   const pend = pendingSummary();
-  const due = darwinDue().map((d) => `${d.domain}(${d.edits})`).join(", ") || "无";
+  const due = darwinDue().map((d) => `${d.domain}(${d.trigger || d.edits})`).join(", ") || "无";
   return (
     `atoms: ${atoms.length}（draft ${draft} / published ${published}）\n` +
     `待整合: ${pend.total}${pend.total ? `（${Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ")})` : ""}\n` +
@@ -121,6 +122,28 @@ export default function (pi: ExtensionAPI) {
         display: "[知识管道] 有待整合知识原子 / skill 体检提示（详见注入内容）",
       },
     };
+  });
+
+  // ---------- 0c. tool_call hook：模型读取 SKILL.md → 记 loaded（usage 审计） ----------
+  // 模糊匹配 JSON.stringify(input)：内置 read 与 codemode 读文件的参数形状不同，
+  // stringify 后统一匹配对两者都成立；嵌套调用也走本 handler。漏记容忍（下界估计）。
+  pi.on("tool_call", async (event) => {
+    try {
+      const input = JSON.stringify((event as { input?: unknown }).input ?? {});
+      if (!input.includes(".pi/agent/skills/") || !input.includes("SKILL.md")) return undefined;
+      const m = input.match(/skills\/([\w.-]+)\/SKILL\.md/);
+      if (!m) return undefined;
+      appendUsage([{
+        ts: new Date().toISOString(),
+        session: "live",
+        skill: m[1],
+        event: "loaded",
+        evidence: event.toolName,
+      }]);
+    } catch {
+      // 审计失败绝不阻塞工具调用
+    }
+    return undefined; // 放行，不修改不拦截
   });
 
   // ---------- 1. capture_knowledge：agent 单条声明 ----------

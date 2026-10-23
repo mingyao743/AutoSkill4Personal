@@ -39,7 +39,7 @@
 
 ## 如何抽取
 
-1. 会话按 **50 条消息 / 40k 字符**切窗，序列化后交 LLM（流式调用，思考 token 不限预算）
+1. 会话按 **100 条消息 / 80k 字符**切窗，序列化后交 LLM（流式调用，思考 token 不限预算）
 2. 单窗产出原子 JSON 数组，schema 校验 + `atom_type` 必须命中切片清单
 3. `atom_id = sha1(category+domain+content)` 幂等，重复内容不重入库
 4. LLM 配置**零额外配置**（见下文"配置"节）
@@ -50,9 +50,28 @@
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
 - **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
-## skill 保鲜（darwin 体检）
+```
+atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
+                                ↓ domainEdits ≥ 10
+                    darwin 9维体检 → paired对比+投票棘轮 → --done记账
 
-某 skill 被 agent 增量修改累计 ≥10 次（`AUTOSKILL_DARWIN_THRESHOLD` 可调），下个会话提示按 [skills/darwin-skill](skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `scripts/darwin-check.ts --done <domain>` 记账。
+              旁路审计：tool_call hook + quit终采专项扫描 → usage.jsonl（loaded/accepted/rejected/edited）
+                          └→ darwin 双轨触发（使用次数/拒绝率）──────┘
+```
+
+## 使用审计（usage.jsonl）
+
+管道旁路账本（`knowledge/usage.jsonl`），记录每个 skill 四类事件：
+
+| 事件 | 来源 | 时机 |
+|---|---|---|
+| `loaded` | extension `tool_call` hook | 模型读取 SKILL.md 实时记录（模糊匹配，下界估计） |
+| `edited` | apply-patches | 提案应用成功时追加 |
+| `accepted` / `rejected` | quit 终采专项扫描 | LLM 判定读取后是遵循还是修正（窗口无 SKILL.md 字样则零成本跳过） |
+
+## skill 保鲜（darwin 体检，双轨触发）
+
+满足任一轨即提示按 [skills/darwin-skill](skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `scripts/darwin-check.ts --done <domain>` 记账。`darwin-check.ts` 裸跑可看报表：各 skill 加载/采纳率/修改计数与零使用（💀）标记。
 
 ## 配置
 
@@ -106,6 +125,7 @@ node --experimental-strip-types scripts/package-skill.ts --all
 ```
 knowledge/
   atoms.jsonl          # 原子池（唯一事实源）
+  usage.jsonl          # 使用审计日志（loaded/accepted/rejected/edited）
   skill-state.json     # 整合账本 + darwin 记账
   intake/              # agent 提案队列
   cards/               # 组装的知识卡片

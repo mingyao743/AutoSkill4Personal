@@ -10,6 +10,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { kbDir, loadAtoms, type KnowledgeAtom } from "./atom-store.ts";
+import { usageSummary } from "./usage-store.ts";
 
 export interface SkillState {
   /** 已整合进 skill 的 atom_id */
@@ -75,12 +76,52 @@ export function darwinThreshold(): number {
   return Number(process.env.AUTOSKILL_DARWIN_THRESHOLD ?? 10);
 }
 
-/** 达到体检触发条件的域列表 */
-export function darwinDue(): { domain: string; edits: number; lastCheck: string | undefined }[] {
+/** 使用次数触发阈值（loaded ≥ 此值建议体检；env 可调） */
+export function darwinUseThreshold(): number {
+  return Number(process.env.AUTOSKILL_DARWIN_USE_THRESHOLD ?? 5);
+}
+
+/** 劣化检测反馈样本下限（accepted+rejected 达此值才计算拒绝率，防小样本误报） */
+const REJECT_RATE_MIN_SAMPLES = 5;
+
+export interface DarwinDueItem {
+  domain: string;
+  edits: number;
+  lastCheck: string | undefined;
+  /** 命中的触发轨（多轨命中用空格连接） */
+  trigger: string;
+}
+
+/**
+ * 双轨体检触发：
+ *   原轨 edits  — 增量修改达阈值（改动多了需要体检）
+ *   使用轨 loaded — 加载次数达阈值（用得多就该检查质量）
+ *   劣化轨 reject — 反馈样本≥下限且拒绝率>50%（早发现劣化，比修改计数更敏感）
+ */
+export function darwinDue(): DarwinDueItem[] {
   const st = loadSkillState();
-  return Object.entries(st.domainEdits)
-    .filter(([, edits]) => edits >= darwinThreshold())
-    .map(([domain, edits]) => ({ domain, edits, lastCheck: st.lastDarwinCheck[domain] }));
+  const th = darwinThreshold();
+  const useTh = darwinUseThreshold();
+  const due = new Map<string, DarwinDueItem>();
+  // 原轨：修改次数
+  for (const [domain, edits] of Object.entries(st.domainEdits)) {
+    if (edits >= th) {
+      due.set(domain, { domain, edits, lastCheck: st.lastDarwinCheck[domain], trigger: "edits" });
+    }
+  }
+  // 新轨：使用/劣化（usage 日志里 accepted/rejected/loaded 达标的都纳入）
+  for (const [domain, u] of usageSummary()) {
+    const item = due.get(domain) ?? { domain, edits: st.domainEdits[domain] ?? 0, lastCheck: st.lastDarwinCheck[domain], trigger: "" };
+    const triggers: string[] = item.trigger ? item.trigger.split(" ") : [];
+    if (u.loaded >= useTh && !triggers.includes("loaded")) triggers.push("loaded");
+    const feedback = u.accepted + u.rejected;
+    if (feedback >= REJECT_RATE_MIN_SAMPLES && u.rejected / feedback > 0.5 && !triggers.includes("reject")) {
+      triggers.push("reject");
+    }
+    item.trigger = triggers.join(" ");
+    if (item.trigger) due.set(domain, item);
+  }
+  return [...due.values()];
 }
 
 /** 体检完成：记录时间、清零计数（agent 跑完 darwin 流程后调） */
