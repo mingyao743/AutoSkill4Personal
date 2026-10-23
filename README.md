@@ -46,7 +46,9 @@
 
 ## 原子 → skill（整合）
 
-- **增量整合（日常主路径）**：原子即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到 `knowledge/intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→原子退队列下轮重做——无锁并发，冲突只重做不丢失）
+**数据目录（重要）**：所有运行时知识数据（`atoms.jsonl`、`cards/`、`intake/`、`usage.jsonl`、`skill-state.json` 等）存放在 `~/.pi/agent/data/autoskill/knowledge/`，**不在包 checkout 内**——pi update 对 git 包执行 `git reset --hard` + `git clean -fdx`（`-x` 连 gitignored 文件一起删），包内数据会被无条件清空。`KB_DIR` 环境变量可覆盖此路径。迁移旧数据：把旧 `knowledge/` 内容拷入新目录即可。
+
+- **增量整合（日常主路径）**：原子即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到数据目录的 `intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→原子退队列下轮重做——无锁并发，冲突只重做不丢失）
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
 - **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
@@ -61,7 +63,7 @@ atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
 
 ## 使用审计（usage.jsonl）
 
-管道旁路账本（`knowledge/usage.jsonl`），记录每个 skill 四类事件：
+管道旁路账本（数据目录下 `usage.jsonl`），记录每个 skill 四类事件：
 
 | 事件 | 来源 | 时机 |
 |---|---|---|

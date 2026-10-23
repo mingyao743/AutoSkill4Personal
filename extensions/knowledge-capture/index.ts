@@ -23,7 +23,7 @@ import type { ExtensionAPI, SessionBeforeCompactEvent, SessionShutdownEvent } fr
 import { atomId, appendAtoms, atomsPath, loadAtoms, logError } from "../../lib/atom-store.ts";
 import { rescueAtoms, generateCompactionSummary } from "../../lib/compaction-rescue.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../lib/llm.ts";
-import { applyPatches } from "../../lib/apply-patches.ts";
+import { applyPatches, intakeDir } from "../../lib/apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "../../lib/skill-state.ts";
 import { appendUsage } from "../../lib/usage-store.ts";
 
@@ -71,7 +71,7 @@ function pendingNotice(): string | undefined {
     } else {
       parts.push(`[知识管道] 有 ${pend.total} 条待整合知识原子（${byDomain}）。` +
         `若本会话任务完成后空闲，可按 ${INTEGRATE_GUIDE} 的流程将它们整合进 skills` +
-        `（写提案到 ${REPO_ROOT}/knowledge/intake/ 后跑 ${APPLY_CLI}）。` +
+        `（写提案到 ${intakeDir()} 后跑 ${APPLY_CLI}）。` +
         `不要在用户任务中途做，一次只整合一个域。忽略本提示也不影响正常工作。`);
     }
   }
