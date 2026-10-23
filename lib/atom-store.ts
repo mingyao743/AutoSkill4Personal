@@ -7,6 +7,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -36,7 +37,12 @@ export interface KnowledgeAtom {
 }
 
 export function kbDir(): string {
-  return process.env.KB_DIR ?? join(REPO_ROOT, "knowledge");
+  // 数据绝不放包内：pi update 对 git 包执行 git clean -fdx（-x 连 gitignored 文件一起删），
+  // 包内任何运行时数据都会在每次更新时被清空。默认落用户级数据目录。
+  return (
+    process.env.KB_DIR ??
+    join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge")
+  );
 }
 
 export function atomsPath(): string {
