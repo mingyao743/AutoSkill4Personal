@@ -28,16 +28,25 @@ import {
 } from "../lib/atom-store.ts";
 import { appendUsage, existingUsageKeys, type UsageEvent } from "../lib/usage-store.ts";
 import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
+import { execFileSync } from "node:child_process";
 
 
 // ---------- 辅助函数 ----------
-const readLines = (p: string): string[] => readFileSync(p, "utf8").split("\n");
+/** 读会话行流：.jsonl 直接读；.jsonl.zstd 同步解压（dsh v4 持久化格式，本机 zstd 可执行文件） */
+const readLines = (p: string): string[] => {
+  if (p.endsWith(".zstd")) {
+    return execFileSync("zstd", ["-d", "-c", p], { maxBuffer: 512 * 1024 * 1024 }).toString("utf8").split("\n");
+  }
+  return readFileSync(p, "utf8").split("\n");
+};
 
-/** 文件名 → 8 位短 session id（如 01a0aef7） */
+/** 文件名 → 8 位短 session id（如 01a0aef7）。兼容 pi（时间戳_前8位）与 dsh（session-uuid 前8位）两种命名 */
 function sessionIdFromFile(filename: string): string {
   const m = filename.match(/_([0-9a-f]{8})-[0-9a-f]{4}-/);
   if (m) return m[1];
-  return filename.replace(/\.jsonl$/, "").replace(/[^0-9a-f]/g, "").slice(0, 8) || "unknown";
+  const dsh = filename.match(/session-([0-9a-f]{8})/);
+  if (dsh) return dsh[1];
+  return filename.replace(/\.jsonl(\.zstd)?$/, "").replace(/[^0-9a-f]/g, "").slice(0, 8) || "unknown";
 }
 
 // ---------- 参数 ----------
@@ -78,7 +87,7 @@ for (const p of positional) {
   if (st.isDirectory()) {
     files.push(
       ...readdirSync(p)
-        .filter((f) => f.endsWith(".jsonl"))
+        .filter((f) => f.endsWith(".jsonl") || f.endsWith(".jsonl.zstd"))
         .map((f) => join(p, f))
     );
   } else files.push(p);

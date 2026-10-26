@@ -25,9 +25,36 @@ export function parseSession(lines: string[]): MessageEntry[] {
     } catch {
       continue; // 损坏行静默跳过
     }
-    if (e.type === "message" && e.id && e.message) out.push(e as MessageEntry);
+    if (e.type === "message" && e.id && e.message) { out.push(e as MessageEntry); continue; }
+    // dsh v4 会话形状归一（user/message + assistant/message → 统一 MessageEntry）
+    const dsh = normalizeDshEntry(e as Record<string, unknown>);
+    if (dsh) out.push(dsh);
   }
   return out;
+}
+
+/** dsh 宿主会话事件 → pi MessageEntry 归一（user/message + assistant/message 两事件形状）。
+ *  dsh v4 会话实测形状：{type, seq, time, data:{role, content:[{type,text}], id}}；
+ *  user/message 的 data 直接含 content；assistant/message 的 data.message 含 content。 */
+function normalizeDshEntry(e: Record<string, unknown>): MessageEntry | null {
+  const data = e.data as Record<string, unknown> | undefined;
+  if (!data) return null;
+  const isUser = e.type === "user/message";
+  const isAssistant = e.type === "assistant/message";
+  if (!isUser && !isAssistant) return null;
+  const msg = (isAssistant ? data.message : data) as Record<string, unknown> | undefined;
+  const role = msg?.role;
+  if (role !== "user" && role !== "assistant") return null;
+  const content = msg?.content;
+  if (!Array.isArray(content)) return null;
+  const time = typeof e.time === "number" ? new Date(e.time).toISOString() : void 0;
+  return {
+    type: "message",
+    id: (msg.id as string) ?? `dsh-${e.seq}`,
+    parentId: null,
+    timestamp: time ?? new Date().toISOString(),
+    message: { role, content, timestamp: e.time } as MessageEntry["message"],
+  };
 }
 
 /**

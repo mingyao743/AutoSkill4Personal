@@ -20,10 +20,10 @@ export interface CatalogCategory {
   slices: CatalogSlice[];
 }
 
-const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // lib/ → packages/core → packages → 仓库根
 
 export function loadCatalog(): CatalogCategory[] {
-  const raw = readFileSync(join(REPO_ROOT, "design", "SLICE_CATALOG.json"), "utf8");
+  const raw = readFileSync(join(MONOREPO_ROOT, "design", "SLICE_CATALOG.json"), "utf8");
   const parsed = JSON.parse(raw);
   return parsed.categories as CatalogCategory[];
 }

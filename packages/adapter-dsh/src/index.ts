@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { setHostContext, hostContext } from "../../core/lib/context.ts";
 import { autoskillProvider } from "./skill-provider.ts";
+import { registerTools } from "./tools.ts";
 
 export interface Config {
 	/** Harness 配置根；默认 $DSH_HOME 或 ~/.dsh */
@@ -22,7 +23,7 @@ export interface Config {
 }
 
 export const name = "autoskill";
-export const inject = ["skills"];
+export const inject = ["skills", "tools"];
 
 /** dsh 命名空间内的知识数据目录（绝不指向 ~/.pi） */
 function dshDataDir(dshHome: string): string {
@@ -36,4 +37,7 @@ export function apply(ctx: Context, config: Partial<Config> = {}) {
 
 	// 2. 注册 skill provider（工厂形态，control 由 registry 注入）
 	ctx.skills.registerProvider(() => autoskillProvider(hostContext()!));
+
+	// 3. M3：capture_knowledge / kb_harvest 两工具
+	registerTools(ctx);
 }
