@@ -15,7 +15,7 @@
 | `kb_harvest` 工具 | 任务收尾、会话积累大量知识时，后台全量终采 | draft · conf 0.6 |
 | compaction 抢救 | 长对话压缩前，自动抢救被压缩区（唯一免审入口） | **published** · conf≥0.7 |
 | quit 终采 | `pi` 退出时 detached spawn 全量回扫 | draft · conf 0.6 |
-| 手动回填 | 对历史 session 跑 `scripts/extract.ts` 补抽 | 同上 |
+| 手动回填 | 对历史 session 跑 `packages/core/scripts/extract.ts` 补抽 | 同上 |
 
 所有入口共用一个引擎，已抽窗口自动跳过（幂等），绝不占用主对话轮次。
 
@@ -73,7 +73,7 @@ atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
 
 ## skill 保鲜（darwin 体检，双轨触发）
 
-满足任一轨即提示按 [skills/darwin-skill](skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `scripts/darwin-check.ts --done <domain>` 记账。`darwin-check.ts` 裸跑可看报表：各 skill 加载/采纳率/修改计数与零使用（💀）标记。
+满足任一轨即提示按 [skills/darwin-skill](skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `packages/core/scripts/darwin-check.ts --done <domain>` 记账。`darwin-check.ts` 裸跑可看报表：各 skill 加载/采纳率/修改计数与零使用（💀）标记。
 
 ## 配置
 
@@ -114,12 +114,12 @@ pi install npm:autoskill
 
 ```bash
 # 手动回填历史 session
-node --experimental-strip-types scripts/extract.ts ~/.pi/agent/sessions/<id>.jsonl
-node --experimental-strip-types scripts/extract.ts ~/.pi/agent/sessions/  # 整目录
+node --experimental-strip-types packages/core/scripts/extract.ts ~/.pi/agent/sessions/<id>.jsonl
+node --experimental-strip-types packages/core/scripts/extract.ts ~/.pi/agent/sessions/  # 整目录
 
 # 大积压时批量重建（会跳过 agent-maintained 的 skill）
-node --experimental-strip-types scripts/assemble.ts
-node --experimental-strip-types scripts/package-skill.ts --all
+node --experimental-strip-types packages/core/scripts/assemble.ts
+node --experimental-strip-types packages/core/scripts/package-skill.ts --all
 ```
 
 ## 目录结构
@@ -131,8 +131,8 @@ knowledge/
   skill-state.json     # 整合账本 + darwin 记账
   intake/              # agent 提案队列
   cards/               # 组装的知识卡片
-extensions/knowledge-capture/   # pi 插件（五入口）
-lib/                  # 抽取/整合/配置引擎
-scripts/              # extract / assemble / package / darwin-check
-design/               # 原理文档（原则/切片清单/schema/整合指引）
+packages/core/        # 抽取/整合/打包引擎（零宿主依赖，数据目录由 HostContext 注入）
+packages/adapter-pi/  # pi 宿主适配层（extensions 入口 + skills 约定）
+packages/adapter-dsh/ # dsh 宿主适配层（DeepSeek Harness bundle，M1 起步）
+design/               # 原理文档（原则/切片清单/schema/整合指引/DSH_PLUGIN_PLAN）
 ```

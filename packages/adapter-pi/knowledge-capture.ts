@@ -16,30 +16,51 @@
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, SessionBeforeCompactEvent, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
-import { atomId, appendAtoms, atomsPath, loadAtoms, logError } from "../../lib/atom-store.ts";
-import { rescueAtoms, generateCompactionSummary } from "../../lib/compaction-rescue.ts";
-import { setModelRegistry, activeConfigDescription, chatComplete } from "../../lib/llm.ts";
-import { applyPatches, intakeDir } from "../../lib/apply-patches.ts";
-import { darwinDue, pendingSummary, darwinThreshold } from "../../lib/skill-state.ts";
-import { appendUsage } from "../../lib/usage-store.ts";
+import { setHostContext } from "../../packages/core/lib/context.ts";
+import { atomId, appendAtoms, atomsPath, loadAtoms, logError } from "../../packages/core/lib/atom-store.ts";
+import { rescueAtoms, generateCompactionSummary } from "../../packages/core/lib/compaction-rescue.ts";
+import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
+import { applyPatches, intakeDir } from "../../packages/core/lib/apply-patches.ts";
+import { darwinDue, pendingSummary, darwinThreshold } from "../../packages/core/lib/skill-state.ts";
+import { appendUsage } from "../../packages/core/lib/usage-store.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const EXTRACT_CLI = join(REPO_ROOT, "scripts", "extract.ts");
-const APPLY_CLI = join(REPO_ROOT, "scripts", "apply-patches.ts");
-const DARWIN_CLI = join(REPO_ROOT, "scripts", "darwin-check.ts");
+const EXTRACT_CLI = join(REPO_ROOT, "packages", "core", "scripts", "extract.ts");
+const APPLY_CLI = join(REPO_ROOT, "packages", "core", "scripts", "apply-patches.ts");
+const DARWIN_CLI = join(REPO_ROOT, "packages", "core", "scripts", "darwin-check.ts");
 const DARWIN_SKILL = join(REPO_ROOT, "skills", "darwin-skill", "SKILL.md");
 const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
 
-/** detached spawn 抽取 CLI（quit 终采 / kb_harvest 共用）；fire-and-forget */
+// adapter-pi 宿主上下文注入（v2：数据目录/凭据基准/skills 输出全部住在 pi 命名空间内）。
+// extension 进程内首次调用时注入；spawn CLI 各自进程靠 AUTOSKILL_DATA_DIR/AUTOSKILL_HOME 环境传递。
+setHostContext({
+  host: "pi",
+  dataDir: process.env.KB_DIR ?? join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge"),
+  homeDir: join(homedir(), ".pi", "agent"),
+  modelsPath: process.env.PI_MODELS_PATH,
+  settingsPath: join(homedir(), ".pi", "agent", "settings.json"),
+});
+
+/** detached spawn 抽取 CLI（quit 终采 / kb_harvest 共用）；fire-and-forget。
+ *  子进程靠环境变量传递宿主上下文（CLI 进程无 jiti，core 从注入降级为环境解析）。 */
 function spawnExtract(sessionFile: string): void {
   const child = spawn(
     process.execPath,
     ["--experimental-strip-types", EXTRACT_CLI, sessionFile],
-    { detached: true, stdio: "ignore", cwd: REPO_ROOT },
+    {
+      detached: true, stdio: "ignore", cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        AUTOSKILL_DATA_DIR: process.env.KB_DIR ?? join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge"),
+        AUTOSKILL_HOME: join(homedir(), ".pi", "agent"),
+        PI_MODELS_PATH: process.env.PI_MODELS_PATH ?? "",
+      },
+    },
   );
   child.unref();
 }
@@ -67,7 +88,7 @@ function pendingNotice(): string | undefined {
     const byDomain = Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ");
     if (pend.total > 25) {
       parts.push(`[知识管道] 待整合原子 ${pend.total} 条（${byDomain}），超过增量阈值。` +
-        `建议用户空闲时跑批量：node --experimental-strip-types ${REPO_ROOT}/scripts/assemble.ts && node --experimental-strip-types ${REPO_ROOT}/scripts/package-skill.ts --all`);
+        `建议用户空闲时跑批量：node --experimental-strip-types ${REPO_ROOT}/packages/core/scripts/assemble.ts && node --experimental-strip-types ${REPO_ROOT}/packages/core/scripts/package-skill.ts --all`);
     } else {
       parts.push(`[知识管道] 有 ${pend.total} 条待整合知识原子（${byDomain}）。` +
         `若本会话任务完成后空闲，可按 ${INTEGRATE_GUIDE} 的流程将它们整合进 skills` +

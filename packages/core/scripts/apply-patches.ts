@@ -7,6 +7,9 @@
 import { applyPatches } from "../lib/apply-patches.ts";
 import { markIntegrated, pendingSummary } from "../lib/skill-state.ts";
 import { loadAtoms } from "../lib/atom-store.ts";
+import { setHostContextFromArgs } from "../lib/context.ts";
+
+setHostContextFromArgs(process.argv);
 
 if (process.argv.includes("--mark-all")) {
   const count = markIntegrated(loadAtoms().map((a) => a.atom_id)).integrated.length;

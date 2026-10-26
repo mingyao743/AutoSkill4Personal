@@ -19,8 +19,8 @@
  */
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { hostContext } from "./context.ts";
 
 export interface ChatOptions {
   system: string;
@@ -78,9 +78,13 @@ function resolveApiKey(raw: string | undefined): string | null {
 
 /** 独立模式降级链。返回 null 时附 human 可读原因。 */
 export function resolveStandaloneConfig(): { config: ChatConfig | null; reason?: string } {
-  const agentDir = join(homedir(), ".pi", "agent");
-  const modelsPath = process.env.PI_MODELS_PATH ?? join(agentDir, "models.json");
-  const models = readJson(modelsPath) as { providers?: Record<string, ProviderEntry> } | null;
+  // 凭据定位基准由 HostContext 注入（适配层启动时指定，宿主内闭环）：
+  //   pi 形态 → homeDir = ~/.pi/agent，读 models.json + settings.json（现状行为）
+  //   dsh/CLI 形态 → 不注 homeDir，models/settings 为空，直接走环境变量直连④
+  const h = hostContext();
+  const agentDir = h?.homeDir ?? null;
+  const modelsPath = h?.modelsPath ?? (agentDir ? join(agentDir, "models.json") : null);
+  const models = modelsPath ? readJson(modelsPath) as { providers?: Record<string, ProviderEntry> } | null : null;
 
   // ① 显式指定（AUTOSKILL_*，读 models.json 对应 provider）
   const envProvider = process.env.AUTOSKILL_PROVIDER;
@@ -93,8 +97,9 @@ export function resolveStandaloneConfig(): { config: ChatConfig | null; reason?:
     return { config: { baseUrl: p.baseUrl, apiKey: key, model: model ?? "default" } };
   }
 
-  // ② settings.json 指向的默认 provider（跟随 pi 单点配置），凭据可解析则用之
-  const settings = readJson(join(agentDir, "settings.json")) as { defaultProvider?: string; defaultModel?: string } | null;
+  // ② settings 指向的默认 provider（跟随宿主单点配置），凭据可解析则用之
+  const settingsPath = h?.settingsPath ?? (agentDir ? join(agentDir, "settings.json") : null);
+  const settings = settingsPath ? readJson(settingsPath) as { defaultProvider?: string; defaultModel?: string } | null : null;
   const preferred = settings?.defaultProvider;
   if (preferred && models?.providers?.[preferred]) {
     const p = models.providers[preferred];
@@ -133,9 +138,13 @@ export function resolveStandaloneConfig(): { config: ChatConfig | null; reason?:
     config: null,
     reason:
       "未找到可用 LLM 配置。解决方式任选其一：\n" +
-      "  a) 在 pi 里跑一次 /login（auth.json 凭据仅 pi 进程内可见，CLI 需改用 b/c）\n" +
-      "  b) ~/.pi/agent/models.json 里给 provider 配 apiKey（支持 $ENV / !command 形式）\n" +
-      "  c) 设置 AUTOSKILL_PROVIDER=<models.json 中的 provider 名>（可选 AUTOSKILL_MODEL=...）\n" +
+      (hostContext()?.host === "pi"
+        ? "  a) 在 pi 里跑一次 /login（auth.json 凭据仅 pi 进程内可见，CLI 需改用 b/c）\n"
+        : "") +
+      (hostContext()?.homeDir
+        ? `  b) ${hostContext()?.homeDir}/models.json 里给 provider 配 apiKey（支持 $ENV / !command 形式）\n`
+        : "") +
+      "  c) 设置 AUTOSKILL_PROVIDER=<凭据定位基准中的 provider 名>（可选 AUTOSKILL_MODEL=...）\n" +
       "  d) 设置 OPENAI_API_KEY（可选 OPENAI_BASE_URL）",
   };
 }

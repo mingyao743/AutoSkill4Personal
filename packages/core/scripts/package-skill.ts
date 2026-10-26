@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
 import { kbDir, loadAtoms } from "../lib/atom-store.ts";
+import { setHostContextFromArgs } from "../lib/context.ts";
 
 const CARDS_DIR = join(kbDir(), "cards");
 const CATEGORY_LABELS: Record<string, string> = {
@@ -33,7 +34,14 @@ const opt = (name: string): string | undefined => {
 };
 const allMode = has("all");
 const dryRun = has("dry");
-const destRoot = opt("dest") ?? join(homedir(), ".pi", "agent", "skills");
+// CLI 注入宿主上下文：--data-dir / AUTOSKILL_DATA_DIR；无注入时 core 兼容回退（KB_DIR → pi 默认）
+setHostContextFromArgs(process.argv);
+const destRoot =
+  opt("dest") ??
+  process.env.AUTOSKILL_SKILLS_DIR ??
+  (process.env.AUTOSKILL_DATA_DIR || process.argv.includes("--data-dir")
+    ? null // dsh 等非落盘形态不预设 pi 路径，必须显式 --dest
+    : join(homedir(), ".pi", "agent", "skills"));
 const domains = allMode
   ? new Set([...readdirSync(CARDS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory())
@@ -45,6 +53,10 @@ const domains = allMode
 
 if (domains.size === 0) {
   console.error("用法: package-skill.ts <domain> | --all [--dest dir] [--dry]");
+  process.exit(1);
+}
+if (!destRoot) {
+  console.error("dsh 等非 pi 形态不预设输出目录：须显式 --dest（或 AUTOSKILL_SKILLS_DIR）");
   process.exit(1);
 }
 

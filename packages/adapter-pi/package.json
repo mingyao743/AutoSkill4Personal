@@ -1,0 +1,10 @@
+{
+  "name": "autoskill-adapter-pi",
+  "version": "0.2.0",
+  "description": "AutoSkill 的 pi 宿主适配层：把知识管道引擎装进 pi（extensions + skills 约定目录）。",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./knowledge-capture.ts"],
+    "skills": ["../../skills"]
+  }
+}

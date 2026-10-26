@@ -1,0 +1,20 @@
+{
+  "name": "dsh-autoskill",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AutoSkill 的 dsh 宿主适配层：知识管道引擎装进 DeepSeek Harness（skill provider + 抽取工具）。",
+  "main": "src/index.ts",
+  "files": ["src", "cordis.patch.yml"],
+  "engines": { "dsh": ">=0.2.0-rc.2" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*"
+  }
+}

@@ -1,10 +1,11 @@
 {
   "name": "autoskill",
-  "version": "0.1.0",
-  "description": "把 pi 对话沉淀为可路由 skill：对话 → 知识原子 → 卡片 → skill → 持续体检",
-  "keywords": ["pi-package"],
-  "pi": {
-    "extensions": ["./extensions/knowledge-capture/index.ts"],
-    "skills": ["./skills"]
+  "version": "0.2.0",
+  "private": true,
+  "description": "AutoSkill monorepo：知识管道引擎（core）+ 宿主适配层（adapter-pi / adapter-dsh）。一个安装只属于一个宿主。",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "kb-status": "node --experimental-strip-types packages/core/scripts/darwin-check.ts"
   }
 }

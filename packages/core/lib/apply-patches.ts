@@ -10,12 +10,13 @@
  *  - 并发 applier 竞态 → 丢标记 → 重做（见 skill-state.ts 并发注释），不会出现
  *    "标记了但内容丢了"或知识丢失
  *
- * 输出目录：默认 ~/.pi/agent/skills/，AUTOSKILL_SKILLS_DIR 可覆盖（与 package-skill 一致）。
+ * 输出目录：HostContext.skillsDir 注入 → AUTOSKILL_SKILLS_DIR → 宿主默认（adapter-pi = ~/.pi/agent/skills）。
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { hostContext } from "./context.ts";
 import { kbDir, loadAtoms, logError } from "./atom-store.ts";
 import { loadSkillState, saveSkillState } from "./skill-state.ts";
 import { appendUsage } from "./usage-store.ts";
@@ -36,8 +37,16 @@ export interface SkillPatch {
   files?: Record<string, string>;
 }
 
+/**
+ * skills 输出目录：HostContext.skillsDir（dsh 形态可能不落盘文件）→
+ * AUTOSKILL_SKILLS_DIR → pi 默认路径。与 package-skill 一致。
+ */
 export function skillsDir(): string {
-  return process.env.AUTOSKILL_SKILLS_DIR ?? join(homedir(), ".pi", "agent", "skills");
+  return (
+    hostContext()?.skillsDir ??
+    process.env.AUTOSKILL_SKILLS_DIR ??
+    join(homedir(), ".pi", "agent", "skills")
+  );
 }
 export function intakeDir(): string {
   return join(kbDir(), "intake");

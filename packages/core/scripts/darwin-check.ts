@@ -10,13 +10,16 @@
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { setHostContextFromArgs, hostContext } from "../lib/context.ts";
 import {
   darwinDue, darwinCheckDone, loadSkillState, darwinThreshold, darwinUseThreshold,
   pendingSummary,
 } from "../lib/skill-state.ts";
 import { usageSummary } from "../lib/usage-store.ts";
 
-const args = process.argv.slice(2);
+setHostContextFromArgs(process.argv);
+
+const args = process.argv.slice(2).filter((a) => a !== "--data-dir");
 const doneIdx = args.indexOf("--done");
 
 if (doneIdx >= 0) {
@@ -33,9 +36,14 @@ const useTh = darwinUseThreshold();
 const pend = pendingSummary();
 const usage = usageSummary();
 
-// 全量 skill 目录 = 已部署的 skills 目录 ∪ state/usage 里出现过记录的域
-const skillsRoot = process.env.AUTOSKILL_SKILLS_DIR ?? join(homedir(), ".pi", "agent", "skills");
-const deployed = existsSync(skillsRoot)
+// 全量 skill 目录 = HostContext.skillsDir ∪ env 覆盖 ∪ pi 默认（已注入时优先注入值）
+const skillsRoot =
+  hostContext()?.skillsDir ??
+  process.env.AUTOSKILL_SKILLS_DIR ??
+  (process.env.AUTOSKILL_DATA_DIR || process.argv.includes("--data-dir")
+    ? null // 非落盘形态不预设 pi 路径，无 deployed 源
+    : join(homedir(), ".pi", "agent", "skills"));
+const deployed = skillsRoot && existsSync(skillsRoot)
   ? new Set(readdirSync(skillsRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name))
   : new Set<string>();
 const domains = new Set<string>([...deployed, ...Object.keys(st.domainEdits), ...Object.keys(st.lastDarwinCheck), ...usage.keys()]);

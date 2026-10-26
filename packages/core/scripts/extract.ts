@@ -18,6 +18,7 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { setHostContextFromArgs } from "../lib/context.ts";
 import { buildWindows, parseSession } from "../lib/window.ts";
 import { serializeEntries } from "../lib/serialize.ts";
 import { buildSystemPrompt, buildSkillFeedbackSystemPrompt, buildSkillFeedbackUserPrompt, loadCatalog, windowMentionsSkill } from "../lib/prompt.ts";
@@ -40,7 +41,15 @@ function sessionIdFromFile(filename: string): string {
 }
 
 // ---------- 参数 ----------
-const args = process.argv.slice(2);
+// CLI 注入宿主上下文：--data-dir / AUTOSKILL_DATA_DIR（adapter-pi spawn 时经环境变量传递）
+setHostContextFromArgs(process.argv);
+// 剩余参数按常规规则解析（positional = session 文件/目录；--data-dir 已被注入器消费）
+const args: string[] = [];
+for (let i = 0; i < process.argv.slice(2).length; i++) {
+  const a = process.argv[i + 2];
+  if (a === "--data-dir") { i++; continue; } // 跳过注入器已消费的 --data-dir <dir>
+  args.push(a);
+}
 const flags = new Map<string, string>();
 const positional: string[] = [];
 for (let i = 0; i < args.length; i++) {

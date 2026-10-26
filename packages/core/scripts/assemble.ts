@@ -24,11 +24,13 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setHostContextFromArgs } from "../lib/context.ts";
 import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
 import { atomsPath, kbDir, loadAtoms, type KnowledgeAtom } from "../lib/atom-store.ts";
 
 // ---------- 参数 ----------
-const args = process.argv.slice(2);
+setHostContextFromArgs(process.argv);
+const args = process.argv.slice(2).filter((a) => a !== "--data-dir");
 const has = (f: string) => args.includes(`--${f}`);
 const opt = (name: string): string | undefined => {
   const i = args.indexOf(`--${name}`);

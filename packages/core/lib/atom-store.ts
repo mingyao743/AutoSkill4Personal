@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { hostContext } from "./context.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,9 +38,12 @@ export interface KnowledgeAtom {
 }
 
 export function kbDir(): string {
-  // 数据绝不放包内：pi update 对 git 包执行 git clean -fdx（-x 连 gitignored 文件一起删），
+  // 解析顺序：HostContext 注入（适配层/CLI 显式指定）→ KB_DIR 环境变量
+  // → pi 默认路径（未注入形态的兼容回退；v2 终态由适配层入口注入）。
+  // 数据绝不放包内：宿主 update 对 git 包执行 git clean -fdx（-x 连 gitignored 文件一起删），
   // 包内任何运行时数据都会在每次更新时被清空。默认落用户级数据目录。
   return (
+    hostContext()?.dataDir ??
     process.env.KB_DIR ??
     join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge")
   );
