@@ -82,9 +82,11 @@ node --experimental-strip-types packages/core/scripts/compile-skills.ts \
 
 ---
 
-## 三、待办 B：③ 正文生成（开发，mock 可测）
+## 三、待办 B：③ 正文生成（开发，mock 可测）✅ 已落地
 
 现状：CLI 只产出[编译简报](SKILL_COMPILER.md)，正文交给 create-skill。目标是把它变成可重复执行的生成步骤。
+
+> 落地（2026-11-12）：`lib/generate-skill.ts` + `compile-skills.ts --generate`。输入=简报 + 选中卡片**完整**正文（`cardsForBrief` 按 atom_id 从 atoms.jsonl 取全量，简报里只截 400 字）+ `skills/create-skill/SKILL.md` 写法指引；输出=`<briefDir>/<skill>.draft.md`；质量环=`validateSkillMd` 不过回喂 `report.errors` 重写（`DEFAULT_MAX_REWRITES=2`）；DI=只调 `chatComplete`，mock 经 `setChatCompleter` 注入；不自动 `--apply`、不覆盖 agent-maintained。CLI 另加 `--home`/`--no-home`（与 pipeline 同链）让独立模式能解析 `~/.pi/agent/models.json` 凭据。
 
 设计要点：
 
@@ -97,13 +99,15 @@ node --experimental-strip-types packages/core/scripts/compile-skills.ts \
 
 验收：
 
-- [ ] mock 测试覆盖：一次通过 / 两次修复后通过 / 两次仍失败（保留 draft、无提案）
-- [ ] 真实环境：一个 ≥5 张卡的主题生成 draft，M1/M2/M4/M5/M6 全过
-- [ ] 人工盲评：只读正文能照做（"能少踩一次坑"），不是知识快照
+- [x] mock 测试覆盖：一次通过 / 两次修复后通过 / 两次仍失败（保留 draft、无提案）— `smoke-skill-compiler.ts` §6，37 项
+- [x] 真实环境：一个 ≥5 张卡的主题生成 draft，M1/M2/M4/M5/M6 全过 — `gpu-train-ops`（8 张 sop/spec），glm-5.3-flash，2 次调用通过；draft 2586 字 / 7 步 / 短效表述 0
+- [ ] 人工盲评：只读正文能照做（"能少踩一次坑"），不是知识快照 — draft 已产出且为决策程序（enforce-eager / 降 utilization / dmesg 排序），待人工确认
 
-## 四、待办 C：⑤ 路由自测（开发，发布前质量门）
+## 四、待办 C：⑤ 路由自测（开发，发布前质量门）✅ 已落地
 
 这是设计里"技能会不会被加载"的唯一可测手段，**是产品功能，不是一次性脚本**。
+
+> 落地（2026-11-12）：`lib/route-test.ts` + `compile-skills.ts --route-test`。扫描 `<skillsDir>` 各技能 description 构成竞争集合（+ 目标自身）；探针 5 正 + 3 负，按 `probeCacheKey = sha1(target.description + 竞争指纹)` 缓存到 `<briefDir>/route-cache.json`；批量判定取排第 1 的技能，正 ≥4/5、负 ≥2/3；失败回喂重写 description（`DEFAULT_MAX_REWRITES=2`）；产物 `<briefDir>/<skill>.route.json`，`routeReportBlocksApply` 让 `--apply` 读到失败报告拒绝（无报告/通过报告不拦）。`validateSkillMd` 仍只标 `needsRoutingTest`，不假装做过。
 
 设计要点：
 
@@ -116,9 +120,9 @@ node --experimental-strip-types packages/core/scripts/compile-skills.ts \
 
 验收：
 
-- [ ] 3 个 mock 技能 + 6 条已知查询的判定测试（含误命中）
-- [ ] 真实目录：正 ≥4/5、负 ≥2/3，失败可复现、重写有次数上限
-- [ ] `--apply` 在路由报告失败时拒绝写提案
+- [x] 3 个 mock 技能 + 6 条已知查询的判定测试（含误命中）— `smoke-skill-compiler.ts` §7a/§7c，含正/负误命中、判分阈值
+- [x] 真实目录：正 ≥4/5、负 ≥2/3，失败可复现、重写有次数上限 — `gpu-train-ops` 对 101 个真实技能：5/5 正、3/3 负、0 重写通过；失败/重写上限由 mock §7c 场景 2/3 覆盖
+- [x] `--apply` 在路由报告失败时拒绝写提案 — `routeReportBlocksApply` 单测 + `--apply` 子进程（§7e：失败报告 exit 非 0、无报告放行写提案）
 
 ## 五、待办 D：真实统一校准（测试，换环境后做）
 
@@ -132,7 +136,24 @@ node --experimental-strip-types packages/core/scripts/review-sheet.ts <session> 
 
 判据见 `design/ONE_STAGE_EXTRACT.md §七`：探针召回（主指标）、每批 drop 有账、盲评摘要率 ≤10%、fail-safe <5%、摘抄率中位 <40%。
 
+> 实测（2026-11-12，paseo 工作空间 child-check 会话 `01a167ea`，231 条消息 / 7 批 / glm-5.3-flash / 220k token / 21min）：落库 21 张（spec 8 / postmortem 5 / convention 3 / index 3 / sop 1 / case 1），拒 0，drop 21。§七 机械项全过——#1 探针召回 4/4（不得自己生成、下游会不会坏、反事实推演、C-2026-001）、#2 每条 user 消息有归属（autoDropped=0；74 条未交代是助手/工具行，契约只强制 user）、#8 fail-safe 1.3%、#9 摘抄率中位 5% 超阈 0、#10 工具事件 108/108 序列化。#5 盲评抽 6 张全为知识非摘要（待人工填满 20 张）。**遗留**：探针仅 4 条（§七 建议 ≥10 覆盖五类分布早中晚），要正式签收需补到 ≥10 并多跑几条会话（尤其 0 atom 的会话查漏检）。产物 `.tmp-d1-calib/REVIEW.md` + `calibrate-one-stage.json` + `blind-review-sample.jsonl`。
+>
+> **收紧（2026-11-12，同会话重跑）**：用户反馈"20 张看不出复用价值"——§七 #5 只判知识/摘要，不判耐久性。落地两道收紧：(1) prompt `lib/one-stage.ts` §三bis：状态快照（库存清单/当前缺口/文件位置数量）、已结案复盘（修复 saga）、被推翻旧口径一律进 drops（复现性=0）；`postmortem` 只留"失效模式+防范"，`index` 只留恒久查找口径。(2) gate `lib/admission.ts` `transienceFlag`：粗判兜底，默认关（中文机械判定误杀率高，§七#4），`checkTransience` 开时拦。重跑（`.tmp-d1-calib-v2/`）：21→**15 atom**、drop 21→**32**、**复现性=0 drop 3→14**、postmortem 5→**2**（两张都是"失效模式"形态）、case 1→0；探针召回仍 4/4、摘抄率中位 5%→7%、逐字 95%→100%。15 张里 **13-14 张可沉淀为技能**（sop 计分复核 / spec 测量契约·产品架构·D1-D8 拍板 / convention 非 git 备份 / index 理论引用纪律·治理三层 / postmortem 两类失效模式）；唯一残留是 1 张被推翻的 v0.5 旧口径（§三bis.3 想拦但模型仍出卡，`transienceFlag` 正确标出）。gate 对 survivor 误标率 ~75%，证其应保持默认关、仅作人工 flag。
+>
+> **签收（2026-11-12）**：① 探针补到 12 条、覆盖口径定义/纠正/决策/范围约束/操作纠正五类，对 v2（收紧后）atoms 复算召回 **12/12 全中**（唯一剔除 `-X utf8`：该串只出现在 tool_result 块、探针匹配器只读 message.content 够不到，属探针选词约束非漏检）。② #5 盲评：v2 的 15 张逐张判 **15/15 knowledge、0 summary → 摘要率 0%**（≤10% ✅）。③ D-1b 多会话验收见下条。D-1 主指标（#1 召回 + #5 盲评）达标。
+>
+> **D-1b 多会话（2026-11-12，01a16297「下载评测工具」，457 条 / 12 批）**：落库 20 atom（**sop 9 / convention 4 / spec 4 / case 1 / postmortem 2**——操作型会话，sop 主导，耐久可沉淀），拒 2（PII 邮箱 + G4 无接地，闸门生效），drop 43（复现性=0 **17**，收紧在别条上也生效）。探针 量表✅/SDQ✅/norm✅；「评测工具」未命中但 2 条含它的消息**全进 drop、0 静默漏检**（泛词出现在用户请求里，请求非知识，下载知识进了 sop atoms）——属 §七#1 的"有归属丢弃"，合格。证收紧**不过滤过头、不漏检**。摘抄率中位 0.20（<0.6）。
+
 2. **编译产物**：对 3 个最高价值主题各生成/编译一次，人工盲评"能照做"；记录描述长度、触发短语数、路由测试结果。
+
+> 实测（2026-11-12，3 个就绪主题，glm-5.3-flash，隔离库 `.tmp-d2/`，对 101 个真实技能做路由）：
+> | 主题 | generate | route | desc 字数 | 能照做 |
+> |---|---|---|---|---|
+> | child-check | 1 次调用 | 5/5·3/3·0 重写 | 280 | ✅ 步骤1-5（测量定义JSON逐字段/PDF直链WHO-cdn·PEARLS-POST/复算5步/画像双向判据/理论三道闸）+失败回退6行+refs路由7行 |
+> | pi-ops | 2 次调用 | 5/5·3/3·0 重写 | 269 | ✅ 网关接入6步（curl /v1/models 实测/models.json JSON模板/json.load校验/重启生效）+reasoning max_tokens·supportsDeveloperRole 等 gotchas |
+> | eval-methodology | 2 次调用 | 5/5·3/3·0 重写 | 271 | ✅ C1-C5判分口径+C3判别程序（3步+4类排除）+复判范围（抽样717→全量3375实例） |
+>
+> 三主题 route 首轮全过、desc 269-280 字（60-300 内、触发密集）、3 提案落盘、正文均可照做。残留：child-check 的 references/pdf-charset.md 等不在盘上（apply 警告，已知——references 只有磁盘存在才随提案打包）。
 
 3. **端到端**：pi 与 dsh 各跑一遍"抽 → 编译 → 校验 → 提案 → apply-patches → 审计/darwin 计数"。
 
@@ -158,13 +179,13 @@ node --experimental-strip-types packages/core/scripts/review-sheet.ts <session> 
 ## 七、建议顺序与完成定义
 
 ```
-A 环境冒烟（半天） → B ③ 开发（mock 驱动） → D-1 抽取校准 → C ⑤ 开发 → D-2 编译产物盲评 → 两宿主端到端
+A 环境冒烟（半天）✅ → B ③ 开发（mock 驱动）✅ → C ⑤ 开发（mock 驱动）✅ → D-1 抽取校准 → D-2 编译产物盲评 → 两宿主端到端
 ```
 
 完成定义（DoD）：
 
-- [ ] `npm run smoke` 三套全绿，且新增 B/C 的 mock 测试
-- [ ] 真实环境：≥1 个主题走完"简报 → 生成 → 校验 → 路由 → 提案 → 应用"
-- [ ] 路由测试失败时 `--apply` 拒绝
-- [ ] 校准表可交给人工盲评，结论按 `ONE_STAGE_EXTRACT §七` 的判据记录
-- [ ] 文档：`SKILL_COMPILER.md` 的"未落地"清单清零，`README` 快速开始与实现一致
+- [x] `npm run smoke` 三套全绿（109/183/31），新增 B（37 项）+ C（65 项）+ 收紧 transienceFlag（10 项）的 mock 测试
+- [x] 真实环境：≥1 个主题走完"简报 → 生成 → 校验 → 路由 → 提案 → 应用"（gpu-train-ops：--generate → --route-test 5/5·3/3 → --apply 写提案，全通）
+- [x] 路由测试失败时 `--apply` 拒绝（`routeReportBlocksApply` + 子进程 §7e）
+- [x] 校准表可交给人工盲评，结论按 `ONE_STAGE_EXTRACT §七` 的判据记录（D-1 签收：12/12 探针召回 + 摘要率 0%；D-2 三主题能照做全过）
+- [x] 文档：`SKILL_COMPILER.md` 的"未落地"清单清零（③+⑤ 已落地；剩余是 D 的真实数据校准与人工盲评）；`README` 快速开始与实现一致

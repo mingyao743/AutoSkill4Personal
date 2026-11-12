@@ -16,7 +16,7 @@ import {
   cardToAtom, rangeFromIds, quoteIsVerbatim, fillMissingSpecialized,
 } from "../lib/one-stage.ts";
 import { validateAtom } from "../lib/validate.ts";
-import { admissionGate, COPY_RATIO_MAX } from "../lib/admission.ts";
+import { admissionGate, COPY_RATIO_MAX, transienceFlag } from "../lib/admission.ts";
 import { parseSession } from "../lib/window.ts";
 import type { MessageEntry } from "../lib/types.ts";
 
@@ -209,6 +209,29 @@ if (!("error" in atom)) {
   t("带历史标记的不算祈使句", admissionGate(hist, { requireWhy: true, checkImperative: true }).reasons.every((r) => !r.includes("祈使句")));
 }
 t("rangeFromIds 多 id 取最小最大", JSON.stringify(rangeFromIds(entries, ["m5", "m1"])) === JSON.stringify(["m1", "m5"]));
+
+console.log("\n--- 7c. transienceFlag：状态快照/已结案复盘粗判（§三bis 兜底，默认关） ---");
+// 耐久：红线 / 契约 / 环境约定 / SOP → 不该被标
+t("spec 红线不标", transienceFlag({ content: "理论引用必须从 theory skill 库检索，不得自行生成；检索不到就不引用。排除：为 thm-* 自建占位理论卡。", doc_type: "spec" }) === null);
+t("convention 红线不标", transienceFlag({ content: "child-check 不是 git 仓库（git rev-parse 报 fatal），覆盖性重写前必须先把旧版 cp 到 archive/，否则旧设计稿不可逆丢失。", doc_type: "convention" }) === null);
+t("sop 不标", transienceFlag({ content: "提交前先 lint 再 test：1) lint 2) test，反了会漏掉类型错误。", doc_type: "sop" }) === null);
+t("rubric 口径不标", transienceFlag({ content: "理论引用治理：消费层只写 thm-*，registry 三道闸为完整性/合法性/A2 词表。", doc_type: "rubric" }) === null);
+// 状态快照：当前缺口 → 标
+t("当前缺口/TODO 标", (transienceFlag({ content: "补齐清单即五缺口：建实例并拍板开放问题、补派生锚点表、定义双值并存 JSON 结构、写取值域校验器。", doc_type: "spec" }) ?? { reason: "" }).reason.includes("缺口"));
+// 库存清单：计数 + 多路径 → 标
+const inv = transienceFlag({ content: "theories/ 7 库 103 张 capability 卡：er-tong-fa-zhan-xin-li-xue 18 张、fei-er-de 17 张。theme-pool.json 12 主题，scene-templates/T-*.json 各 3 场景。归档在 ~/Downloads/。", doc_type: "index" });
+t("库存清单标", inv !== null && inv.reason.includes("库存清单"));
+// 已结案复盘：postmortem + 处置标记 + 无可分离教训 → 标
+const sag = transienceFlag({ content: "现象：T-0017 引了 thm-008 但 registry 标 retired。根因：闸2 只查 id 不查 status。处置（B 批）：补 retired 拒引 + A2 词表闸，已上线。", doc_type: "postmortem" });
+t("已结案复盘标", sag !== null && sag.reason.includes("已结案"));
+// postmortem 带可分离失效模式 + 防范 → 不标（这才是该留的复盘）
+t("postmortem 带失效模式+防范不标", transienceFlag({ content: "失效模式：成员检查≠合法性检查（id 存在≠引用合法）。防范：校验闸要读 status 字段，retired 不许消费层引用——同类还会在别的 registry 复现。", doc_type: "postmortem" }) === null);
+// 门接线：checkTransience 开 → 拦；默认关 → 不拦（防误杀）
+if (!("error" in atom)) {
+  const transientAtom = { ...atom, content: "补齐清单即五缺口：建实例、补派生锚点表、写校验器。", doc_type: "spec" as const };
+  t("checkTransience 开时拦状态快照", admissionGate(transientAtom, { requireWhy: true, checkTransience: true }).reasons.some((r) => r.includes("状态快照")));
+  t("checkTransience 默认关（不误杀）", !admissionGate(transientAtom, { requireWhy: true }).reasons.some((r) => r.includes("状态快照")));
+}
 
 console.log("\n--- 7b. 两项决议：quote 只标记不拦 + 缺字段降级入库 ---");
 // 来历（2026-11-12 实测）：被拒 18 张里 6 张只是没填类型必填字段，内容有据；

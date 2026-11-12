@@ -214,6 +214,48 @@ export function looksImperative(body: string): boolean {
   return /^(要|必须|应该|应当|请|别|不要|不得|务必|一定要|记住|注意[:：])/m.test(t);
 }
 
+/**
+ * 状态快照 / 已结案复盘的粗判（默认不拦，见 GateOptions.checkTransience）。
+ *
+ * §三bis 的 prompt 约束才是主防线；这个函数是 prompt 漏判时的兜底，且**默认关**——
+ * 中文机械判定误杀率高（§七#4：路径/数字正则有分词误报），开了会误伤
+ * "含库存数字的恒久口径"这类。现阶段只产出 flag 供人工/观测，不作硬拒。
+ *
+ * 三类高置信信号：
+ *  - 当前缺口/TODO（头部命中"补齐清单/缺口/待补/缺…表"）
+ *  - 库存清单（正文有计数 + ≥2 个文件路径，且非 postmortem）
+ *  - 已结案复盘（postmortem 且有"处置/已补/已修"标记、无可分离"失效模式/防范"）
+ */
+const TRANSIENT_GAP_RE = /(补齐清单|五缺口|缺口|待补|未实现|缺.{0,6}表|TODO|待办)/;
+const TRANSIENT_COUNT_RE = /\d+\s*(主题|张|条|个|库|字段)/;
+const TRANSIENT_PATH_RE =
+  /(?:[\/~][^\s/]+\.(?:json|md|ts|js|py|yml|yaml|sh))|(?:theories|personas|records|scene-templates|归档)[\/ ]/g;
+const TRANSIENT_RESOLVED_RE = /(处置[（(]?[A-Za-z批]?[)）]?[:：]|已补|已加|已修|已上线|已落地|修复后)/;
+const TRANSIENT_LESSON_RE = /(失效模式|防范|下次.{0,6}还|同类.{0,4}复现|规律)/;
+
+export interface TransienceFlag {
+  transient: true;
+  reason: string;
+}
+
+export function transienceFlag(atom: Pick<KnowledgeAtom, "content" | "doc_type">): TransienceFlag | null {
+  const body = String(atom.content ?? "");
+  if (!body) return null;
+  const head = body.slice(0, 160);
+  // 1. 当前缺口 / TODO（头部命中即可，置信最高）
+  if (TRANSIENT_GAP_RE.test(head)) return { transient: true, reason: "状态快照：当前缺口/TODO（会过期）" };
+  // 2. 库存清单：计数短语 + ≥2 路径（postmortem 走第 3 条，不在这里判）
+  if (atom.doc_type !== "postmortem" && TRANSIENT_COUNT_RE.test(body)) {
+    const pathCount = (body.match(TRANSIENT_PATH_RE) || []).length;
+    if (pathCount >= 2) return { transient: true, reason: "状态快照：库存清单（计数+多路径，会过期）" };
+  }
+  // 3. 已结案复盘：postmortem + 处置标记 + 无可分离教训
+  if (atom.doc_type === "postmortem" && TRANSIENT_RESOLVED_RE.test(body) && !TRANSIENT_LESSON_RE.test(body)) {
+    return { transient: true, reason: "已结案复盘：修复 saga，无可分离失效模式" };
+  }
+  return null;
+}
+
 export interface GateOptions {
   /** msg_range 区间是否真的有接地（含 user 或 toolResult）。不传 = 无法判定，放行 */
   hasGrounding?: boolean;
@@ -232,6 +274,12 @@ export interface GateOptions {
    * 现阶段只做 prompt 约束 + 人工抽检；等误杀率数据出来再决定要不要常开。
    */
   checkImperative?: boolean;
+  /**
+   * 是否拦"状态快照 / 已结案复盘"（§三bis）。**默认关**：transienceFlag 是粗判，
+   * 中文机械判定的路径/数字正则有分词误报（§七#4），会误伤"含库存数字的恒久口径"。
+   * 现阶段靠 prompt 约束；这条只作观测/人工抽检的兜底，开了需复核被拦样本。
+   */
+  checkTransience?: boolean;
 }
 
 export interface GateResult {
@@ -274,6 +322,12 @@ export function admissionGate(atom: Pick<KnowledgeAtom, "content" | "sources" | 
   // 历史写成祈使句（默认关，见 GateOptions.checkImperative）
   if (opts.checkImperative && looksImperative(String(atom.content ?? ""))) {
     reasons.push("历史写成了祈使句（会被未来 agent 当成当前指令执行），改写成\"当时定的是…\"");
+  }
+
+  // 状态快照 / 已结案复盘（默认关，见 GateOptions.checkTransience）
+  if (opts.checkTransience) {
+    const tf = transienceFlag(atom);
+    if (tf) reasons.push(tf.reason);
   }
 
   return { ok: reasons.length === 0, reasons };
