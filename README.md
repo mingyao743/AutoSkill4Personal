@@ -59,6 +59,7 @@
 
 - **增量整合（日常主路径）**：知识卡片即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到数据目录的 `intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→知识卡片退队列下轮重做——无锁并发，冲突只重做不丢失）
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
+- **编译主路径（确定性部分已实现）**：`compile-skills.ts` 先过**就绪门**（≥5 张卡、≥2 个会话、内容有变化、非短效知识）→ **选材器**打分排序并按 doc_type 正文预算分档 → 产出**编译简报**（给 create-skill 当输入）→ 对产出的 SKILL.md 跑 **M1/M2/M4/M5/M6 规则校验** → 通过后写 intake 提案。M3 路由自测仍需要 LLM/人工探针（[SKILL_COMPILER.md](design/SKILL_COMPILER.md)）
 - **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
 ```
@@ -90,6 +91,7 @@ atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
 
 - **extension 在场**（在线入口）：走 pi 的 ModelRegistry，与主对话同一条认证链（auth.json / models.json / 环境变量 / `!command`），模型跟随你当前会话模型
 - **纯 CLI 进程**（quit 终采等）：降级链 `AUTOSKILL_PROVIDER/MODEL 显式指定` → settings.json 默认 provider → 扫 models.json → `OPENAI_API_KEY` 直连
+- **dsh 形态**：优先走宿主 `ctx.llm`（凭据在 dsh 自己的 profile/credentials 里，不读 `~/.pi`）；只有 spawn 独立进程时退回环境变量链，`kb_harvest` 无 env 凭据时自动改用宿主进程内抽取
 - 可选：`AUTOSKILL_MODEL=便宜模型` 一行切换；`/kb` 看状态，`kb_doctor` 工具自检链路
 
 ## 快速开始
@@ -99,14 +101,14 @@ atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
 AutoSkill 是标准 [pi package](https://pi.dev/packages)（约定目录：`extensions/` + `skills/`），用 pi 原生包机制安装：
 
 ```bash
-# 方式一：本地目录（试用/开发）
-pi install ./AutoSkill
+# 方式一：本地目录（试用/开发）——v2 是三分包 monorepo，pi manifest 在 adapter-pi 子包
+pi install ./AutoSkill4Personal/packages/adapter-pi
 
-# 方式二：git（免维护目录位置，pi 管理副本）
-pi install git:github.com/<you>/AutoSkill
+# 方式二：git（免维护目录位置，pi 管理副本；指向 packages/adapter-pi）
+pi install git:github.com/<you>/AutoSkill4Personal/packages/adapter-pi
 
 # 方式三：发布到 npm 后
-pi install npm:autoskill
+pi install npm:autoskill-adapter-pi
 ```
 
 装完重启 pi 即生效。pi 会把包声明写入 `~/.pi/agent/settings.json`（本地安装记录相对路径，不含用户名；移动目录后重跑一次 `pi install` 即可）。
@@ -117,7 +119,7 @@ pi install npm:autoskill
 
 ### 日常使用
 
-装完即全自动，无需记命令：谈出有价值内容时 agent 会自主调 `capture_knowledge`；收尾说一句"收割一下本会话知识"触发 `kb_harvest`；退出 pi 自动终采；下个会话开头若有积压会收到整合提示。
+装完即全自动，无需记命令：谈出有价值内容时 agent 会自主调 `capture_knowledge`；收尾说一句"收割一下本会话知识"触发 `kb_harvest`；退出 pi 自动终采；下个会话开头若有积压会收到整合提示，若某主题已过编译就绪门且内容有变化，还会收到一条"可编译主题"提示（编译简报 → create-skill → `--validate` → `--apply`）。
 
 ### 可选维护操作
 
@@ -129,6 +131,17 @@ node --experimental-strip-types packages/core/scripts/extract.ts ~/.pi/agent/ses
 # 大积压时批量重建（会跳过 agent-maintained 的 skill）
 node --experimental-strip-types packages/core/scripts/assemble.ts
 node --experimental-strip-types packages/core/scripts/package-skill.ts --all
+
+# 技能编译（确定性部分）：就绪门 + 选材 + 编译简报
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --all
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> --force
+
+# 校验产出的 SKILL.md（M1/M2/M4/M5/M6；M3 路由自测需 LLM/人工）
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> --validate <SKILL.md>
+
+# 通过后写 intake 提案（再跑 apply-patches，pi 宿主下次启动会自动消费）
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> \
+  --apply <SKILL.md> --skills-dir ~/.pi/agent/skills
 ```
 
 ## 目录结构
@@ -138,9 +151,11 @@ knowledge/
   atoms.jsonl          # 知识卡片池（唯一事实源，文件名保留旧叫法）
   usage.jsonl          # 使用审计日志（loaded/accepted/rejected/edited）
   skill-state.json     # 整合账本 + darwin 记账
+  compile-state.json   # 技能编译指纹（内容有变化才重编）
   intake/              # agent 提案队列
   cards/               # 组装的知识卡片
-packages/core/        # 抽取/分诊/整合/打包引擎（零宿主依赖，数据目录由 HostContext 注入）
+  compile/             # 编译简报（<domain>.brief.md / .json）
+packages/core/        # 抽取/分诊/整合/编译/打包引擎（零宿主依赖，数据目录由 HostContext 注入）
 packages/adapter-pi/  # pi 宿主适配层（extensions 入口 + skills 约定）
 packages/adapter-dsh/ # dsh 宿主适配层（DeepSeek Harness bundle，M1 起步）
 design/               # 原理文档（原则/切片清单/schema/整合指引/DSH_PLUGIN_PLAN）

@@ -33,6 +33,8 @@ import { rescueAtoms, generateCompactionSummary } from "../../packages/core/lib/
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
 import { applyPatches, intakeDir } from "../../packages/core/lib/apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "../../packages/core/lib/skill-state.ts";
+import { compileDue } from "../../packages/core/lib/compile-skill.ts";
+import { lastCompileHashes } from "../../packages/core/lib/compile-state.ts";
 import { appendUsage } from "../../packages/core/lib/usage-store.ts";
 import { coverageReport } from "../../packages/core/lib/coverage.ts";
 import { runPipeline } from "../../packages/core/lib/pipeline.ts";
@@ -45,6 +47,8 @@ const APPLY_CLI = join(REPO_ROOT, "packages", "core", "scripts", "apply-patches.
 const DARWIN_CLI = join(REPO_ROOT, "packages", "core", "scripts", "darwin-check.ts");
 const DARWIN_SKILL = join(REPO_ROOT, "skills", "darwin-skill", "SKILL.md");
 const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
+const COMPILE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "compile-skills.ts");
+const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
 
 // adapter-pi 宿主上下文注入（v2：数据目录/凭据基准/skills 输出全部住在 pi 命名空间内）。
 // extension 进程内首次调用时注入；spawn CLI 各自进程靠 AUTOSKILL_DATA_DIR/AUTOSKILL_HOME 环境传递。
@@ -134,10 +138,12 @@ function kbStats(): string {
   const published = atoms.filter((a) => a.status === "published").length;
   const pend = pendingSummary();
   const due = darwinDue().map((d) => `${d.domain}(${d.trigger || d.edits})`).join(", ") || "无";
+  const compile = compileDue(atoms, lastCompileHashes(), { limit: 10_000 }).map((d) => d.skillName).join(", ") || "无";
   return (
     `atoms: ${atoms.length}（draft ${draft} / published ${published}）\n` +
     `待整合: ${pend.total}${pend.total ? `（${Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ")})` : ""}\n` +
     `体检待触发: ${due}\n` +
+    `可编译: ${compile}\n` +
     `路径: ${atomsPath()}`
   );
 }
@@ -195,6 +201,18 @@ function pendingNotice(): string | undefined {
     parts.push(`[skill 体检] ${list} 自上次体检已累计增量修改 ≥ ${darwinThreshold()} 次，建议空闲时按 ${DARWIN_SKILL} ` +
       `的流程做一次体检（高频主题可跑完整优化，长尾主题先跑 Phase 0.5-1 评估即可）。` +
       `完成后运行 ${DARWIN_CLI} --done <domain> 记账。需要用户确认的检查点按该 skill 的流程走。`);
+  }
+  // 技能编译：已过就绪门且内容有变化的主题（确定性检查，不调 LLM）
+  try {
+    const compile = compileDue(loadAtoms(), lastCompileHashes(), { limit: 5 });
+    if (compile.length > 0) {
+      const list = compile.map((d) => `${d.skillName}(${d.atoms}张/${d.sessions}会话)`).join(", ");
+      parts.push(`[技能编译] ${list} 已过就绪门且内容有变化。空闲时按 ${COMPILE_DESIGN} 的流程：` +
+        `跑 ${COMPILE_CLI} --domain <主题> 生成编译简报 → 交给 create-skill 产出 SKILL.md → ` +
+        `用 --validate 过确定性关卡 → --apply 写 intake 提案。不要在用户任务中途做。`);
+    }
+  } catch {
+    // 提示失败不影响会话
   }
   return parts.length ? parts.join("\n\n") : undefined;
 }
@@ -371,8 +389,7 @@ export default function (pi: ExtensionAPI) {
     const allEntries = ctx.sessionManager.getEntries() as Array<{ type: string; id?: string; [k: string]: unknown }>;
     const cutIdx = allEntries.findIndex((e) => e.id === firstKeptEntryId);
     const toSummarize = (cutIdx === -1 ? allEntries : allEntries.slice(0, cutIdx))
-      .filter((e): e is import("../../lib/types.ts").MessageEntry =>
-        e.type === "message" && typeof e.id === "string");
+      .filter((e): e is MessageEntry => e.type === "message" && typeof e.id === "string");
 
     if (toSummarize.length === 0) return; // 无可抢救，走默认 compaction
 

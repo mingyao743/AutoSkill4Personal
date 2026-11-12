@@ -6,6 +6,8 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "kb-status": "node --experimental-strip-types packages/core/scripts/darwin-check.ts"
+    "kb-status": "node --experimental-strip-types packages/core/scripts/darwin-check.ts",
+    "compile-skills": "node --experimental-strip-types packages/core/scripts/compile-skills.ts",
+    "smoke": "node --experimental-strip-types packages/core/scripts/smoke-one-stage.ts && node --experimental-strip-types packages/core/scripts/smoke-skill-compiler.ts && node --experimental-strip-types packages/adapter-dsh/test/smoke-dsh.ts"
   }
 }

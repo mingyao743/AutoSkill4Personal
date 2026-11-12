@@ -15,14 +15,18 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { setHostContext, hostContext } from "../../core/lib/context.ts";
+import { logError } from "../../core/lib/atom-store.ts";
 import { autoskillProvider } from "./skill-provider.ts";
+import { installDshLlm, type LlmBridgeConfig } from "./llm-bridge.ts";
 import {
-	registerTools, getCurrentSessionFile, latestSessionFile, spawnPipelineDsh,
+	registerTools, setDshHome, getCurrentSessionFile, latestSessionFile, dispatchPipeline,
 } from "./tools.ts";
 
 export interface Config {
 	/** Harness 配置根；默认 $DSH_HOME 或 ~/.dsh */
 	dshHome?: string;
+	/** 抽取用 LLM 路由；不配则跟随当前会话，再退回宿主首个 provider */
+	llm?: LlmBridgeConfig;
 	/** 知识管线定时触发（dsh 没有逐轮钩子，只能定时扫） */
 	pipeline?: {
 		enabled?: boolean;
@@ -36,7 +40,7 @@ export interface Config {
 }
 
 export const name = "autoskill";
-export const inject = ["skills", "tools"];
+export const inject = ["skills", "tools", "llm"];
 
 /** dsh 命名空间内的知识数据目录（绝不指向 ~/.pi） */
 function dshDataDir(dshHome: string): string {
@@ -47,14 +51,21 @@ export function apply(ctx: Context, config: Partial<Config> = {}) {
 	// 1. 注入宿主上下文（adapter-dsh 启动第一步；冲突注入会抛错，早期暴露 bug）
 	const home = config.dshHome ?? process.env.DSH_HOME ?? join(process.env.HOME ?? "~", ".dsh");
 	setHostContext({ host: "dsh", dataDir: dshDataDir(home) });
+	setDshHome(home); // 会话文件扫描也用同一个根（自定义 DSH_HOME 时不再硬编码 ~/.dsh）
 
-	// 2. 注册 skill provider（工厂形态，control 由 registry 注入）
+	// 2. LLM 桥：抽取/抢救走宿主 ctx.llm，凭据留在宿主内（不再依赖 ~/.pi 的 models.json）
+	//    注入失败（宿主未挂 llm）时退回 standalone 链，由 errors.log 暴露原因
+	if (!installDshLlm(ctx, config.llm ?? {})) {
+		logError("[autoskill] 宿主没有 ctx.llm，抽取只能退回 standalone 链（需 OPENAI_API_KEY）");
+	}
+
+	// 3. 注册 skill provider（工厂形态，control 由 registry 注入）
 	ctx.skills.registerProvider(() => autoskillProvider(hostContext()!));
 
-	// 3. M3：capture_knowledge / kb_harvest 两工具
+	// 4. M3：capture_knowledge / kb_harvest 两工具
 	registerTools(ctx);
 
-	// 4. 知识管线定时触发：会话文件有新内容才跑（覆盖派生保证不重复消耗）
+	// 5. 知识管线定时触发：会话文件有新内容才跑（覆盖派生保证不重复消耗）
 	startPipelineTimer(ctx, config);
 }
 
@@ -77,7 +88,7 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 			if (f === lastFile && mtime === lastMtime) return; // 没有新消息，不重复烧 token
 			lastFile = f;
 			lastMtime = mtime;
-			spawnPipelineDsh(f, {
+			dispatchPipeline(f, {
 				maxBatches: p.maxBatches ?? 2,
 				budgetTokens: p.budgetTokens ?? 40_000,
 			});

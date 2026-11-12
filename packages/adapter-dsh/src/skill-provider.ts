@@ -25,6 +25,15 @@ const CATEGORY_LABELS: Record<string, string> = {
 	"01": "业务认知", "02": "操作SOP", "03": "模板与骨架", "04": "案例与样例", "05": "问题与复盘",
 };
 
+/**
+ * 类别 → assemble.ts 实际写出的目录名。
+ * 旧实现直接用 "01".."05" 拼路径，而 assemble.ts 写的是 `01-business` 等带后缀的目录，
+ * 于是 provider 永远找不到组卡产物、悄悄退回知识卡片聚合——两个宿主读到的正文因此分叉。
+ */
+const CATEGORY_DIRS: Record<string, string> = {
+	"01": "01-business", "02": "02-sop", "03": "03-templates", "04": "04-cases", "05": "05-lessons",
+};
+
 export function autoskillProvider(h: HostContext): SkillProvider & { name: string } {
 	return {
 		name: "autoskill",
@@ -91,13 +100,18 @@ function summarize(latest: KnowledgeAtom, u: SkillUsage | undefined): string {
 	return `${head}${types ? `｜${types}` : ""}${usageNote}`.slice(0, 500);
 }
 
-/** 主题全文：优先读组卡产物 cards/<category>/<domain>.md，其次从知识卡片聚合 */
+/** 主题全文：优先读组卡产物 cards/<category-dir>/<domain>.md，其次从知识卡片聚合 */
 function domainBody(dataDir: string, domain: string): string | undefined {
-	// 组卡查找：五类目录里找同名 .md
-	for (const cat of Object.keys(CATEGORY_LABELS)) {
-		const p = join(dataDir, "cards", cat, `${domain}.md`);
-		if (existsSync(p)) return readFileSync(p, "utf8");
+	// 组卡产物按 (category, domain) 分文件，一个 domain 可能同时落在多个类目里
+	// （spec 在 01、sop 在 02、postmortem 在 05）。全部拼起来 —— 与 pi 侧
+	// package-skill 的 cardsFor(domain) 同口径；只取第一个会让两个宿主的正文分叉。
+	const parts: string[] = [];
+	for (const cat of Object.keys(CATEGORY_DIRS)) {
+		const p = join(dataDir, "cards", CATEGORY_DIRS[cat], `${domain}.md`);
+		if (!existsSync(p)) continue;
+		parts.push(readFileSync(p, "utf8").trim());
 	}
+	if (parts.length > 0) return parts.join("\n\n---\n\n") + "\n";
 	// 无组卡：知识卡片聚合兜底（保证 provider get 永不静默失败）
 	const atoms = instructionAtoms().filter((a) => sanitizeDomain(a.domain || "general") === domain);
 	if (atoms.length === 0) return undefined;

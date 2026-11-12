@@ -11,25 +11,30 @@
  *   kb_harvest        —— detached spawn 抽取 CLI（fire-and-forget），会话文件从 agent.session.id 派生。
  *
  * dsh 宿主差异（v2 宿主独立原则，不读 ~/.pi 下任何路径）：
- *   凭据解析链 host=dsh 时不注 homeDir → 环境变量直连④（OPENAI_API_KEY/OPENAI_BASE_URL）
- *   或 AUTOSKILL_PROVIDER/AUTOSKILL_MODEL 显式指定——抽取 LLM 配置经环境变量传给子进程。
- *   会话文件是 zstd v4 格式（session.v4.jsonl.zstd），extract.ts 已原生支持。
+ *   凭据：进程内调用走 ctx.llm 桥（llm-bridge.ts），凭据在宿主内闭环；
+ *   spawn 子进程时才退回环境变量链（OPENAI_API_KEY / AUTOSKILL_*），无凭据时自动改用进程内。
+ *   会话文件是 zstd v4 格式（<dshHome>/sessions/<cwd-slug>/<id>/session.v4.jsonl[.zstd]）。
  */
-import { spawn } from "node:child_process";
-import { homedir } from "node:os";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { Context } from "@deepseek-ai/cordis";
 import { setHostContext, hostContext } from "../../core/lib/context.ts";
-import { atomId, appendAtoms, loadAtoms, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
+import { atomId, appendAtoms, loadAtoms, logError, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
+import { parseSession } from "../../core/lib/window.ts";
+import { runPipeline } from "../../core/lib/pipeline.ts";
+import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
+import { rememberLlmTarget } from "./llm-bridge.ts";
 import {
   admissionGate, categoryForType, declaredSource, defaultAtomType, ensureTypeFields, isDocType, keepAsForType, labelForType,
 } from "../../core/lib/admission.ts";
 import { validateAtom } from "../../core/lib/validate.ts";
 import { resolveStandaloneConfig } from "../../core/lib/llm.ts";
 import { pendingSummary } from "../../core/lib/skill-state.ts";
+import { compileDue } from "../../core/lib/compile-skill.ts";
+import { lastCompileHashes } from "../../core/lib/compile-state.ts";
 
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -71,8 +76,93 @@ export function spawnPipelineDsh(sessionFile: string, opts: { maxBatches?: numbe
 	child.unref();
 }
 
-// 当前会话文件：定时器与工具共用（拿不到 agent 句柄时用"最新会话文件"兜底）
+/**
+ * 进程内管线（凭据在宿主里的唯一可行路径）。
+ *
+ * 为什么需要：spawn 出来的 CLI 是独立进程，看不到宿主 ctx.llm，只能走 standalone 链
+ * （dsh → 只剩 OPENAI_API_KEY）。没配环境变量时 spawn 会静默失败，知识永远抽不出来。
+ * 这条路径在宿主进程里跑，chatComplete 走注入的 ctx.llm 桥；异步 fire-and-forget，
+ * 不阻塞工具调用（代价是宿主退出时可能截断，覆盖水位保证下次接着抽）。
+ */
+export async function runPipelineInProcess(
+	sessionFile: string,
+	opts: { maxBatches?: number; budgetTokens?: number } = {},
+): Promise<void> {
+	const h = hostContext();
+	if (!h?.dataDir || !sessionFile) return;
+	const lines = readSessionLines(sessionFile);
+	const entries = parseSession(lines);
+	if (entries.length === 0) return;
+	const sessionId = sessionIdFromLines(lines, sessionFile);
+
+	// 主题清单：知识卡片池高频主题，防模型自造主题（与 pipeline CLI 同口径）
+	const counts = new Map<string, number>();
+	for (const a of loadAtoms()) {
+		const d = (a.domain || "").trim();
+		if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+	}
+	const domainOptions = [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 30).map(([d]) => d);
+
+	await runPipeline({
+		sessionId,
+		entries,
+		harness: "dsh",
+		maxBatches: opts.maxBatches ?? 2,
+		budgetTokens: opts.budgetTokens ?? 40_000,
+		domainOptions,
+	});
+}
+
+/**
+ * 选路：standalone 凭据可用 → detached spawn（隔离、不占宿主事件循环）；
+ * 否则 → 进程内管线（走 ctx.llm 桥）。返回实际走的路由，便于测试与诊断。
+ */
+export function dispatchPipeline(
+	sessionFile: string,
+	opts: { maxBatches?: number; budgetTokens?: number } = {},
+): "spawn" | "in-process" | "none" {
+	const h = hostContext();
+	if (!h?.dataDir || !sessionFile) return "none";
+	if (resolveStandaloneConfig().config) {
+		spawnPipelineDsh(sessionFile, opts);
+		return "spawn";
+	}
+	void runPipelineInProcess(sessionFile, opts).catch((e) => {
+		logError(`[autoskill] 进程内管线失败: ${String(e).slice(0, 300)}`);
+	});
+	return "in-process";
+}
+
+/** 会话文件行流：dsh v4 是 zstd 压缩的 jsonl（与 core CLI 同一解压口径） */
+function readSessionLines(p: string): string[] {
+	if (p.endsWith(".zstd")) {
+		return execFileSync("zstd", ["-d", "-c", p], { maxBuffer: 512 * 1024 * 1024 }).toString("utf8").split("\n");
+	}
+	return readFileSync(p, "utf8").split("\n");
+}
+
+/** 会话 id：优先 session 事件里的真实 id，退化为文件名（与 core CLI 一致） */
+function sessionIdFromLines(lines: string[], sessionFile: string): string {
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		try {
+			const e = JSON.parse(line) as { type?: string; id?: string };
+			if (e.type === "session" && typeof e.id === "string") return e.id;
+		} catch {
+			// 损坏行跳过
+		}
+	}
+	return sessionIdFromFile(sessionFile);
+}
+
 let currentSessionFile: string | undefined;
+
+/** dsh 配置根：index.ts apply 时注入（config.dshHome），没注入则按 $DSH_HOME / ~/.dsh */
+let configuredDshHome: string | undefined;
+
+export function setDshHome(home: string): void {
+	configuredDshHome = home;
+}
 
 export function rememberAgent(agent: unknown): void {
 	const f = dshSessionFile(agent);
@@ -85,33 +175,7 @@ export function getCurrentSessionFile(): string | undefined {
 
 /** 兜底：扫描 cwd 对应的 sessions 目录，取 mtime 最新的会话文件 */
 export function latestSessionFile(): string | undefined {
-	try {
-		const slug = `--${process.cwd().replace(/^\/|\/$/g, "").replace(/[^a-zA-Z0-9]+/g, "-")}--`;
-		const base = join(homedir(), ".dsh", "sessions", slug);
-		if (!existsSync(base)) return undefined;
-		let best: string | undefined;
-		let bestM = 0;
-		for (const d of readdirSync(base)) {
-			const dir = join(base, d);
-			try {
-				if (!statSync(dir).isDirectory()) continue;
-			} catch {
-				continue;
-			}
-			for (const f of ["session.v4.jsonl.zstd", "session.v4.jsonl"]) {
-				const p = join(dir, f);
-				if (!existsSync(p)) continue;
-				const m = statSync(p).mtimeMs;
-				if (m > bestM) {
-					bestM = m;
-					best = p;
-				}
-			}
-		}
-		return best;
-	} catch {
-		return undefined;
-	}
+	return latestSessionFileIn(configuredDshHome);
 }
 
 /** 后台收集日志的知识卡片计数（对齐 pi 侧 kbStats） */
@@ -121,27 +185,22 @@ function kbStats(): string {
 	const draft = atoms.filter((a) => a.status === "draft").length;
 	const published = atoms.filter((a) => a.status === "published").length;
 	const pend = pendingSummary();
+	const compile = compileDue(atoms, lastCompileHashes(), { limit: 10_000 }).length;
 	return (
 		`atoms: ${atoms.length}（draft ${draft} / published ${published}）\n` +
 		`待整合: ${pend.total}` +
 		(pend.total > 0 ? `（${Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ")}）` : "") +
+		`\n可编译主题: ${compile}` +
 		`\n路径: ${h?.dataDir ? join(h.dataDir, "atoms.jsonl") : "未注入"}`
 	);
 }
 
-/** 从 agent 会话句柄派生 dsh 会话文件路径（~/.dsh/sessions/<cwd-slug>/<session-id>/session.v4.jsonl.zstd） */
+/** 从 agent 会话句柄派生 dsh 会话文件路径（<dshHome>/sessions/<cwd-slug>/<session-id>/session.v4.jsonl[.zstd]） */
 function dshSessionFile(agent: unknown): string | undefined {
 	try {
-		const a = agent as { session?: { id?: string } } | undefined;
-		const id = a?.session?.id;
+		const id = (agent as { session?: { id?: string } } | undefined)?.session?.id;
 		if (!id) return undefined;
-		// cwd-slug：路径分隔符与非字母字符 → --；与实测目录名一致（如 --Users-chenmingyao-Documents-cmy-only-AutoSkill--）
-		const slug = `--${process.cwd().replace(/^\/|\/$/g, "").replace(/[^a-zA-Z0-9]+/g, "-")}--`;
-		const base = join(homedir(), ".dsh", "sessions", slug, id);
-		for (const f of ["session.v4.jsonl.zstd", "session.v4.jsonl"]) {
-			if (existsSync(join(base, f))) return join(base, f);
-		}
-		return undefined;
+		return sessionFileFor(configuredDshHome, process.cwd(), id);
 	} catch {
 		return undefined;
 	}
@@ -181,6 +240,7 @@ export function registerTools(ctx: Context): void {
 				if (!isDocType(a.doc_type)) {
 					return `未入库：doc_type "${a.doc_type}" 非法。只允许 sop/spec/template/case/postmortem/convention/index/rubric。`;
 				}
+				rememberLlmTarget(exec.agent);
 				const sessionId =
 					(exec.agent as { session?: { id?: string } } | undefined)?.session?.id ?? "unknown-session";
 				const source = declaredSource(sessionId);
@@ -232,14 +292,19 @@ export function registerTools(ctx: Context): void {
 			},
 			execute(args, exec) {
 				rememberAgent(exec.agent);
+				rememberLlmTarget(exec.agent);
 				const sessionFile = dshSessionFile(exec.agent) ?? latestSessionFile();
-				if (sessionFile) spawnPipelineDsh(sessionFile, { maxBatches: 2, budgetTokens: 40_000 });
-				// 凭据可用性预检（对齐 pi 侧失败尽早暴露：CLI 报错入 errors.log，这里只提示）
+				// 凭据可用 → 独立进程；否则 → 宿主进程内（走 ctx.llm 桥，凭据在宿主内闭环）
+				const route = sessionFile ? dispatchPipeline(sessionFile, { maxBatches: 2, budgetTokens: 40_000 }) : "none";
+				// 凭据可用性预检（对齐 pi 侧失败尽早暴露；进程内路径由桥负责，不再报 standalone 缺配置）
 				const { config, reason } = resolveStandaloneConfig();
-				const note = config ? "" : `\n[抽取凭据预检] 当前环境无可用 LLM 配置，后台抽取将失败：\n${reason}`;
+				const note = route === "spawn" && !config
+					? `\n[抽取凭据预检] 当前环境无可用 LLM 配置，后台抽取将失败：\n${reason}`
+					: "";
 				const project = process.cwd().split(/[\\/]/).filter(Boolean).pop() ?? "当前项目";
 				const located = sessionFile ? "" : "\n未定位到会话文件，抽取器需手动指定。";
-				return Promise.resolve(`已开始发现并抽取「${project}」会话的知识（后台运行，只处理未审消息）。${located}\n${kbStats()}${note}`);
+				const via = route === "in-process" ? "宿主进程内，走 ctx.llm" : "后台独立进程";
+				return Promise.resolve(`已开始发现并抽取「${project}」会话的知识（${via}，只处理未审消息）。${located}\n${kbStats()}${note}`);
 			},
 		}),
 	);

@@ -4,7 +4,9 @@
 
 > **⚠️ 决议更新（2026-11-11 晚）**：本文"③ 编译"一步改为**外包给 `create-skill`**（传 技能描述 + 选中卡片 + 契约）；**就绪门、选材器、契约、规则校验、路由自测、提案落盘仍按本文自研**。理由：41 个技能 3 周只有 3 个被加载——description 与选材决定技能会不会被用，不能外包。选材器新增职责：**同类多卡聚合**（选型对比类 → 对比矩阵，排障类 → 排障清单）。详见 STORE_OVERALL §四、§十一。
 
-> 状态：proposed · 2026-11-11
+> 状态：**确定性部分已实现**（2026-11-12）· 正文生成仍外包
+> 已落地：`lib/compile-skill.ts`（就绪门 + 选材器 + 短效判定 + 编译简报）、`lib/skill-contract.ts`（M1/M2/M4/M5/M6 纯函数校验）、`scripts/compile-skills.ts`（CLI：简报 / --validate / --apply）、`scripts/smoke-skill-compiler.ts`（72 项回归）
+> 未落地：③ 正文生成（交接给 create-skill，需要 LLM）、⑤ 路由自测（需要 LLM/人工探针；CLI 只标记 `needsRoutingTest`，不假装做过）
 > 解决的问题：41 个 skill = 3 个索引页 + 37 个知识卡片堆砌 + 1 个精修；40/41 描述是模板；3 周内只有 3 个被加载过。
 > 定位：替换 `package-skill.ts` 成为**默认**技能产出路径。`assemble` 保留为"证据视图"，不再是技能来源。
 
@@ -179,12 +181,16 @@ score = 程序性(0/1) * 3
 
 编译输出里的 `dropped[]` 必须写明理由，可审计。
 
+> **实现偏差（2026-11-12）**：本文写“三个机械判据任一命中即视为短效知识候选”。实现时发现判据 2（程序性 <20%）对 spec / rubric 这类本来就非流程性的主题天然成立，单独命中就把主题判死会误杀。`compile-skill.ts` 改为要求 **≥2 条判据互相印证** 才判 short-lived（`TRANSIENT_BLOCK_HITS = 2`），单条只记 warning；`--force` 可强制编译。阈值集中在一个常量，实测有反例再调。
+
 ## 八、质量关卡
 
 **机械（M，全部必须过）**
 - M1 结构：必需段落齐全
 - M2 可执行：步骤/判断条数达标
 - M3 路由：正负探针通过
+
+> M3 需要 LLM 或人工探针，`skill-contract.ts` **不假装做过**：只返回 `needsRoutingTest: true` 并在报告里标 ⏳。`--apply` 不拦它，但发布前必须补；这是“确定性校验”和“质量结论”的分界线。
 - M4 去噪：无元数据、无模板句式、短效表述 ≤1
 - M5 预算：正文 ≤6000 字，分诊表每行有条件
 - M6 引用闭合：分诊表引用的文件真实存在
@@ -203,16 +209,18 @@ score = 程序性(0/1) * 3
 
 ## 十、与现有代码的映射
 
-| 现有 | 处置 |
-|---|---|
-| `scripts/package-skill.ts` | 降级为 `--legacy` 快照模式；默认不再使用 |
-| `scripts/assemble.ts` | 保留为证据视图（references 来源） |
-| `lib/apply-patches.ts` | **复用**：编译器产出提案，applier 统一写，保留 `base_skill_sha` 并发安全 |
-| `lib/admission.ts` | 复用准入规则与类型表 |
-| 新增 `lib/compile-skill.ts` | 编译核心：选材、prompt、解析、规则校验、探针 |
-| 新增 `lib/skill-contract.ts` | SKILL.md 契约校验（M1–M6，纯函数） |
-| 新增 `scripts/compile-skills.ts` | CLI：`--domain X --all --dry --limit --force --apply` |
-| `design/INTEGRATE_GUIDE.md` | 改为"编译器输出的人工确认指南"，不再要求从零写 |
+| 现有 | 处置 | 状态 |
+|---|---|---|
+| `scripts/package-skill.ts` | 降级为快照模式（M3 路由自测落地前仍可当回退） | ⏸ 保留 |
+| `scripts/assemble.ts` | 保留为证据视图（references 来源） | ✅ 未动 |
+| `lib/apply-patches.ts` | **复用**：编译器产出提案，applier 统一写，保留 `base_skill_sha` 并发安全 | ✅ 复用 |
+| `lib/admission.ts` | 复用准入规则与类型表 | ✅ 复用 |
+| 新增 `lib/compile-skill.ts` | 就绪门（≥5 张 / ≥2 会话 / 内容变化 / 短效判定）+ 选材器（打分、预算分档、同类聚合提示）+ 编译简报 | ✅ 已实现 |
+| 新增 `lib/compile-state.ts` | 编译指纹（内容有变化才重编）；宿主提示与 CLI 共用 | ✅ 已实现 |
+| 新增 `lib/skill-contract.ts` | SKILL.md 契约校验（M1/M2/M4/M5/M6 纯函数）+ 分档预算 `BODY_BUDGET` | ✅ 已实现 |
+| 新增 `scripts/compile-skills.ts` | CLI：简报 / `--validate` / `--apply` / `--force` / `--limit` / `--dry` / `--json` | ✅ 已实现 |
+| 新增 `scripts/smoke-skill-compiler.ts` | 72 项不调模型的回归（就绪门/选材/短效/契约/简报） | ✅ 已实现 |
+| `design/INTEGRATE_GUIDE.md` | 改为“编译器输出的人工确认指南”，不再要求从零写 | ⏸ 待改 |
 
 编译器输出走 intake 提案：即使全自动，也保持**单一写入者**，且 `agent-maintained` 技能只提案不覆盖。
 

@@ -162,6 +162,23 @@ export function resolveStandaloneConfig(): { config: ChatConfig | null; reason?:
   };
 }
 
+// ---------------- 通用 completer 注入点（宿主自带 LLM 服务） ----------------
+// dsh 适配层用 ctx.llm（provider 无关的流式模型服务）实现本接口：dsh 的凭据不存在
+// models.json 里，而是宿主自己的 profile/credentials，standalone 降级链在 dsh 里只剩
+// OPENAI_API_KEY 一条路。注入后 core 的调用走宿主服务，凭据解析留在宿主内部闭环。
+
+let injectedCompleter: ChatCompleter | null = null;
+
+/** 注入宿主侧调用器；优先级高于 registry 与 standalone */
+export function setChatCompleter(fn: ChatCompleter): void {
+  injectedCompleter = fn;
+}
+
+/** 宿主卸载时撤掉注入（Cordis disposal） */
+export function clearChatCompleter(): void {
+  injectedCompleter = null;
+}
+
 // ---------------- registry 模式注入点 ----------------
 
 type RegistryLike = {
@@ -189,6 +206,7 @@ export function clearModelRegistry(): void {
 
 /** 当前生效配置描述（日志/诊断用） */
 export function activeConfigDescription(): string {
+  if (injectedCompleter) return "宿主注入 completer 模式（dsh ctx.llm）";
   if (registry) return `registry 模式（model=${registryModelId ?? "跟随会话"})`;
   return "standalone 模式（models.json/env 解析）";
 }
@@ -238,6 +256,9 @@ async function chatViaRegistry(opts: ChatOptions): Promise<ChatResult> {
 // ---------------- 主入口 ----------------
 
 export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
+  // A0. 宿主注入的 completer：dsh 等自带 LLM 服务的宿主，凭据在宿主内闭环
+  if (injectedCompleter) return injectedCompleter(opts);
+
   // A. registry 模式：extension 在场（capture_knowledge / compaction 抢救等在线入口）
   if (registry) return chatViaRegistry(opts);
 
