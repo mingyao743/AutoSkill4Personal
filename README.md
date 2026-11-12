@@ -59,7 +59,7 @@
 
 - **增量整合（日常主路径）**：知识卡片即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到数据目录的 `intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→知识卡片退队列下轮重做——无锁并发，冲突只重做不丢失）
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
-- **编译主路径（确定性部分已实现）**：`compile-skills.ts` 先过**就绪门**（≥5 张卡、≥2 个会话、内容有变化、非短效知识）→ **选材器**打分排序并按 doc_type 正文预算分档 → 产出**编译简报**（给 create-skill 当输入）→ 对产出的 SKILL.md 跑 **M1/M2/M4/M5/M6 规则校验** → 通过后写 intake 提案。M3 路由自测仍需要 LLM/人工探针（[SKILL_COMPILER.md](design/SKILL_COMPILER.md)）
+- **编译主路径（确定性部分 + ③ 正文生成 + ⑤ 路由自测已实现）**：`compile-skills.ts` 先过**就绪门**（≥5 张卡、≥2 个会话、内容有变化、非短效知识）→ **选材器**打分排序并按 doc_type 正文预算分档 → 产出**编译简报** → `--generate` 调 LLM（简报 + 选中卡片完整正文 + create-skill 写法指引）生成 SKILL.md draft，validate 不过回喂重写最多 2 次 → 对 draft 跑 **M1/M2/M4/M5/M6 规则校验** → `--route-test` 路由自测（5 正+3 负探针，正 ≥4/5、负 ≥2/3，失败回喂重写 description 最多 2 次）→ 通过后写 intake 提案，`--apply` 读到失败的路由报告会拒绝（[SKILL_COMPILER.md](design/SKILL_COMPILER.md)）
 - **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
 ```
@@ -136,10 +136,20 @@ node --experimental-strip-types packages/core/scripts/package-skill.ts --all
 node --experimental-strip-types packages/core/scripts/compile-skills.ts --all
 node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> --force
 
-# 校验产出的 SKILL.md（M1/M2/M4/M5/M6；M3 路由自测需 LLM/人工）
+# ③ 正文生成（调 LLM）：简报 + 选中卡片完整正文 + create-skill 写法指引 → draft
+# validate 不过回喂 errors 重写（最多 2 次）；仍不过保留 draft、不生成提案
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> --generate
+node --experimental-strip-types packages/core/scripts/compile-skills.ts --generate <briefDir>/<主题>.brief.json
+
+# 校验产出的 SKILL.md / draft（M1/M2/M4/M5/M6；M3 路由自测见下）
 node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> --validate <SKILL.md>
 
-# 通过后写 intake 提案（再跑 apply-patches，pi 宿主下次启动会自动消费）
+# ⑤ 路由自测（调 LLM）：扫描 skillsDir 各技能构成竞争集合，5 正+3 负探针，
+# 正 ≥4/5、负 ≥2/3 才过；失败回喂重写 description 最多 2 次；产物 <briefDir>/<主题>.route.json
+node --experimental-strip-types packages/core/scripts/compile-skills.ts \
+  --route-test <SKILL.md> --skills-dir ~/.pi/agent/skills
+
+# 通过后写 intake 提案（--apply 读到失败的路由报告会拒绝；再跑 apply-patches，pi 宿主下次启动会自动消费）
 node --experimental-strip-types packages/core/scripts/compile-skills.ts --domain <主题> \
   --apply <SKILL.md> --skills-dir ~/.pi/agent/skills
 ```

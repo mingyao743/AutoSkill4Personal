@@ -4,9 +4,9 @@
 
 > **⚠️ 决议更新（2026-11-11 晚）**：本文"③ 编译"一步改为**外包给 `create-skill`**（传 技能描述 + 选中卡片 + 契约）；**就绪门、选材器、契约、规则校验、路由自测、提案落盘仍按本文自研**。理由：41 个技能 3 周只有 3 个被加载——description 与选材决定技能会不会被用，不能外包。选材器新增职责：**同类多卡聚合**（选型对比类 → 对比矩阵，排障类 → 排障清单）。详见 STORE_OVERALL §四、§十一。
 
-> 状态：**确定性部分已实现**（2026-11-12）· 正文生成仍外包
-> 已落地：`lib/compile-skill.ts`（就绪门 + 选材器 + 短效判定 + 编译简报）、`lib/skill-contract.ts`（M1/M2/M4/M5/M6 纯函数校验）、`scripts/compile-skills.ts`（CLI：简报 / --validate / --apply）、`scripts/smoke-skill-compiler.ts`（72 项回归）
-> 未落地：③ 正文生成（交接给 create-skill，需要 LLM）、⑤ 路由自测（需要 LLM/人工探针；CLI 只标记 `needsRoutingTest`，不假装做过）
+> 状态：**确定性部分 + ③ 正文生成 + ⑤ 路由自测已实现**（2026-11-12）
+> 已落地：`lib/compile-skill.ts`（就绪门 + 选材器 + 短效判定 + 编译简报）、`lib/skill-contract.ts`（M1/M2/M4/M5/M6 纯函数校验）、`lib/generate-skill.ts`（③ 正文生成：LLM + validate→重写环，最多 2 次重写）、`lib/route-test.ts`（⑤ 路由自测：5 正+3 负探针 + 批量判定 + 失败回喂重写 description + 缓存 + `--apply` 路由门）、`scripts/compile-skills.ts`（CLI：简报 / `--generate` / `--route-test` / `--validate` / `--apply`）、`scripts/smoke-skill-compiler.ts`（183 项回归，含 mock 驱动生成与路由自测）
+> 未落地：（确定性 + LLM 步骤已齐；剩余是真实数据统一校准与人工盲评，见 NEXT_STEPS 待办 D）
 > 解决的问题：41 个 skill = 3 个索引页 + 37 个知识卡片堆砌 + 1 个精修；40/41 描述是模板；3 周内只有 3 个被加载过。
 > 定位：替换 `package-skill.ts` 成为**默认**技能产出路径。`assemble` 保留为"证据视图"，不再是技能来源。
 
@@ -42,8 +42,9 @@
    │     ├ 正文预算内（≤6k 字）→ 进入正文
    │     └ 其余 → references（保留溯源）
    │
-   ├─ ③ 编译（一次 LLM 调用）：知识卡片 → 结构化技能
-   │     输出：body / description / 分诊表 / 正负探针 / 丢弃清单
+   ├─ ③ 编译（LLM，初始 + 最多 2 次重写）：知识卡片 → 结构化技能 draft
+   │     输入：编译简报 + 选中卡片**完整**正文（简报里只截 400 字）+ create-skill 写法指引
+   │     输出：`<briefDir>/<skill>.draft.md`；validate 不过 → 回喂 report.errors 重写，仍不过 → 保留 draft、不生成提案
    │
    ├─ ④ 规则校验（0 成本）：结构 / 去元数据 / 短效表述 / 长度 / 分诊条件
    │
@@ -190,7 +191,7 @@ score = 程序性(0/1) * 3
 - M2 可执行：步骤/判断条数达标
 - M3 路由：正负探针通过
 
-> M3 需要 LLM 或人工探针，`skill-contract.ts` **不假装做过**：只返回 `needsRoutingTest: true` 并在报告里标 ⏳。`--apply` 不拦它，但发布前必须补；这是“确定性校验”和“质量结论”的分界线。
+> M3 需要 LLM 或人工探针，`skill-contract.ts` **不假装做过**：只返回 `needsRoutingTest: true` 并在报告里标 ⏳。M3 由独立的 `--route-test` 落地（`lib/route-test.ts`）：正 ≥4/5、负 ≥2/3，失败回喂重写 description 最多 2 次，产物 `compile/<skill>.route.json`；`--apply` 读到**失败**报告必须拒绝（无报告/通过报告不拦，发布前必须补）。这是"确定性校验"和"质量结论"的分界线。
 - M4 去噪：无元数据、无模板句式、短效表述 ≤1
 - M5 预算：正文 ≤6000 字，分诊表每行有条件
 - M6 引用闭合：分诊表引用的文件真实存在
@@ -218,8 +219,10 @@ score = 程序性(0/1) * 3
 | 新增 `lib/compile-skill.ts` | 就绪门（≥5 张 / ≥2 会话 / 内容变化 / 短效判定）+ 选材器（打分、预算分档、同类聚合提示）+ 编译简报 | ✅ 已实现 |
 | 新增 `lib/compile-state.ts` | 编译指纹（内容有变化才重编）；宿主提示与 CLI 共用 | ✅ 已实现 |
 | 新增 `lib/skill-contract.ts` | SKILL.md 契约校验（M1/M2/M4/M5/M6 纯函数）+ 分档预算 `BODY_BUDGET` | ✅ 已实现 |
-| 新增 `scripts/compile-skills.ts` | CLI：简报 / `--validate` / `--apply` / `--force` / `--limit` / `--dry` / `--json` | ✅ 已实现 |
-| 新增 `scripts/smoke-skill-compiler.ts` | 72 项不调模型的回归（就绪门/选材/短效/契约/简报） | ✅ 已实现 |
+| 新增 `lib/generate-skill.ts` | ③ 正文生成：简报 + 选中卡片完整正文 + create-skill 写法指引 → LLM → validate→重写环（最多 2 次）→ draft；只调 `chatComplete`，测试用 `setChatCompleter` 注入 mock | ✅ 已实现 |
+| 新增 `lib/route-test.ts` | ⑤ 路由自测：探针生成（5 正+3 负，按 `sha1(description+竞争指纹)` 缓存）+ 批量判定（正 ≥4/5、负 ≥2/3）+ 失败回喂重写 description（最多 2 次）+ `routeReportBlocksApply` 路由门 | ✅ 已实现 |
+| 新增 `scripts/compile-skills.ts` | CLI：简报 / `--generate`（③ 正文生成）/ `--route-test`（⑤ 路由自测）/ `--validate` / `--apply`（含路由门）/ `--force` / `--limit` / `--dry` / `--json` / `--home` | ✅ 已实现 |
+| 新增 `scripts/smoke-skill-compiler.ts` | 183 项不调模型的回归（就绪门/选材/短效/契约/简报 + mock 驱动生成三类 + mock 驱动路由自测三类 + `--apply` 路由门子进程） | ✅ 已实现 |
 | `design/INTEGRATE_GUIDE.md` | 改为“编译器输出的人工确认指南”，不再要求从零写 | ⏸ 待改 |
 
 编译器输出走 intake 提案：即使全自动，也保持**单一写入者**，且 `agent-maintained` 技能只提案不覆盖。
