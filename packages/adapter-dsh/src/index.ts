@@ -11,15 +11,28 @@
  *  - provider 经工厂注册：ctx.skills.registerProvider((control) => provider)
  *  - ctx.effect(disposer) 自动清理（卸载时 provider 出 registry + 目录缓存失效）
  */
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
 import { setHostContext, hostContext } from "../../core/lib/context.ts";
 import { autoskillProvider } from "./skill-provider.ts";
-import { registerTools } from "./tools.ts";
+import {
+	registerTools, getCurrentSessionFile, latestSessionFile, spawnPipelineDsh,
+} from "./tools.ts";
 
 export interface Config {
 	/** Harness 配置根；默认 $DSH_HOME 或 ~/.dsh */
 	dshHome?: string;
+	/** 知识管线定时触发（dsh 没有逐轮钩子，只能定时扫） */
+	pipeline?: {
+		enabled?: boolean;
+		/** 检查间隔秒数（默认 600） */
+		intervalSeconds?: number;
+		/** 单次最多几批（默认 2） */
+		maxBatches?: number;
+		/** 单次 token 预算（默认 40000） */
+		budgetTokens?: number;
+	};
 }
 
 export const name = "autoskill";
@@ -40,4 +53,43 @@ export function apply(ctx: Context, config: Partial<Config> = {}) {
 
 	// 3. M3：capture_knowledge / kb_harvest 两工具
 	registerTools(ctx);
+
+	// 4. 知识管线定时触发：会话文件有新内容才跑（覆盖派生保证不重复消耗）
+	startPipelineTimer(ctx, config);
+}
+
+/**
+ * dsh 没有逐轮钩子：用定时器 + 会话文件 mtime 变化作为触发。
+ * 优先用工具/压缩阶段抓到的会话文件；拿不到就扫 cwd 对应的 sessions 目录取最新。
+ */
+function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
+	const p = config.pipeline ?? {};
+	if (p.enabled === false) return;
+	const intervalMs = Math.max(60, p.intervalSeconds ?? 600) * 1000;
+	let lastFile: string | undefined;
+	let lastMtime = 0;
+
+	const tick = (): void => {
+		try {
+			const f = getCurrentSessionFile() ?? latestSessionFile();
+			if (!f || !existsSync(f)) return;
+			const mtime = statSync(f).mtimeMs;
+			if (f === lastFile && mtime === lastMtime) return; // 没有新消息，不重复烧 token
+			lastFile = f;
+			lastMtime = mtime;
+			spawnPipelineDsh(f, {
+				maxBatches: p.maxBatches ?? 2,
+				budgetTokens: p.budgetTokens ?? 40_000,
+			});
+		} catch {
+			// 定时器异常不影响宿主
+		}
+	};
+
+	const timer = setInterval(tick, intervalMs);
+	const first = setTimeout(tick, 60_000);
+	ctx.effect(() => () => {
+		clearInterval(timer);
+		clearTimeout(first);
+	});
 }

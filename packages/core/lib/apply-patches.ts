@@ -5,8 +5,8 @@
  *  - 提案 = knowledge/intake/<patch_id>.patch.json（生产者只追加唯一名文件，零协调）
  *  - 按创建序串行应用；已应用的跳过
  *  - update 时校验 base_skill_sha：基于的版本已过期（别人先应用过）→ 丢弃提案，
- *    原子退回 pending（本来就没标记），下次会话重做 —— 冲突靠重做消化，不靠锁
- *  - "写文件 + 标记原子"绑同一事务：标记永远不先于内容落地
+ *    知识卡片退回 pending（本来就没标记），下次会话重做 —— 冲突靠重做消化，不靠锁
+ *  - "写文件 + 标记知识卡片"绑同一事务：标记永远不先于内容落地
  *  - 并发 applier 竞态 → 丢标记 → 重做（见 skill-state.ts 并发注释），不会出现
  *    "标记了但内容丢了"或知识丢失
  *
@@ -29,7 +29,7 @@ export interface SkillPatch {
   action: "update" | "create";
   /** 提案所基于的 SKILL.md sha1（update 必填；失配=过期提案，丢弃自愈） */
   base_skill_sha?: string;
-  /** 本提案整合的原子（幂等单位；丢弃提案时这些原子留 pending 重做） */
+  /** 本提案整合的知识卡片（幂等单位；丢弃提案时这些知识卡片留 pending 重做） */
   atom_ids: string[];
   /** 完整新 SKILL.md 内容（全量替换，非 diff） */
   skill_md: string;
@@ -63,7 +63,7 @@ const atomicWrite = (path: string, content: string): void => {
 
 export interface ApplyReport {
   applied: string[];   // patch_id
-  discarded: string[]; // patch_id（过期/失效，原子留 pending 自愈）
+  discarded: string[]; // patch_id（过期/失效，知识卡片留 pending 自愈）
   failed: string[];    // patch_id（IO 异常，留队列下次再试）
 }
 
@@ -98,9 +98,9 @@ export function applyPatches(): ApplyReport {
         }
         const cur = sha1(readFileSync(skillMdPath, "utf8"));
         if (patch.base_skill_sha && cur !== patch.base_skill_sha) {
-          // 基于版本已过期：别人先应用了。丢弃提案，原子留 pending，下次会话重做。
+          // 基于版本已过期：别人先应用了。丢弃提案，知识卡片留 pending，下次会话重做。
           report.discarded.push(patch.patch_id);
-          logError(`patch ${patch.patch_id} 丢弃：基版本失配（已过期的提案，原子退回 pending 重做）`);
+          logError(`patch ${patch.patch_id} 丢弃：基版本失配（已过期的提案，知识卡片退回 pending 重做）`);
           rmSync(join(intakeDir(), file));
           continue;
         }
@@ -119,7 +119,7 @@ export function applyPatches(): ApplyReport {
         if (rel.includes("..")) continue; // 防路径逃逸
         atomicWrite(join(skillDir, rel), content);
       }
-      // 标记：同一事务（state 原子写）—— 崩溃最坏=内容已落但未标记 → 重做幂等
+      // 标记：同一事务（state 知识卡片写）—— 崩溃最坏=内容已落但未标记 → 重做幂等
       const st = loadSkillState();
       st.integrated = [...new Set([...st.integrated, ...patch.atom_ids])];
       st.appliedPatches[patch.patch_id] = new Date().toISOString();
@@ -137,7 +137,7 @@ export function applyPatches(): ApplyReport {
   return report;
 }
 
-/** bootstrap：把已有 skill 覆盖的原子全部标记已整合（批量打包后用） */
+/** bootstrap：把已有 skill 覆盖的知识卡片全部标记已整合（批量打包后用） */
 export function markDomainIntegrated(domains: string[]): number {
   const ids = loadAtoms()
     .filter((a) => domains.includes(a.domain || "general"))

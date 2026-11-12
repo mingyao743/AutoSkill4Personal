@@ -17,7 +17,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
-import { kbDir, loadAtoms } from "../lib/atom-store.ts";
+import { isInstructionAtom, kbDir, loadAtoms } from "../lib/atom-store.ts";
 import { setHostContextFromArgs } from "../lib/context.ts";
 
 const CARDS_DIR = join(kbDir(), "cards");
@@ -77,13 +77,13 @@ function cardsFor(domain: string): { category: string; path: string; content: st
 
 // ---------- LLM 生成路由描述 ----------
 async function genDescription(domain: string, cards: { category: string; content: string }[]): Promise<string> {
-  const atomCount = loadAtoms().filter((a) => (a.domain || "general") === domain).length;
+  const atomCount = loadAtoms().filter((a) => isInstructionAtom(a) && (a.domain || "general") === domain).length;
   const digest = cards
     .map((c) => `【${CATEGORY_LABELS[c.category] ?? c.category}】\n` + c.content.replace(/^#.*\n|^>.*\n/gm, "").slice(0, 1200))
     .join("\n\n");
-  const system = `你是技能路由描述生成器。给定一个业务域的知识卡片内容，为其生成 skill 的 description（模型据此决定何时加载本技能）。
+  const system = `你是技能路由描述生成器。给定一个业务主题的知识卡片内容，为其生成 skill 的 description（模型据此决定何时加载本技能）。
 要求：中文，一句话说明这是什么领域的知识库，再用一句"适用于/涵盖"列举典型场景（排障、操作、概念查询等）。总长 ≤ 200 字。只输出 description 文本本身，不要 JSON、不要引号。`;
-  const user = `业务域: ${domain}（${atomCount} 个知识原子）\n\n${digest}`;
+  const user = `业务主题: ${domain}（${atomCount} 个知识卡片）\n\n${digest}`;
   try {
     const res = await chatComplete({ system, user });
     return res.text.trim().replace(/^["「]|["」]$/g, "").slice(0, 1000);
@@ -126,12 +126,12 @@ description: ${description}
 
 # ${domain} 知识技能包
 
-> 由 AutoSkill 知识管道自动打包（${new Date().toISOString().slice(0, 10)}）：pi 会话 → 知识原子 → 卡片 → 本技能。
-> 原子带溯源（session id + 消息 id）与置信度；知识可被 capture_knowledge 工具增量补充后重新打包。
+> 由 AutoSkill 知识管道自动打包（${new Date().toISOString().slice(0, 10)}）：pi 会话 → 知识卡片 → 本技能。
+> 知识卡片带溯源（session id + 消息 id）与置信度；知识可被 capture_knowledge 工具增量补充后重新打包。
 
 ${inline
   ? `## 内容（全部内联）\n\n${overview}\n`
-  : `## 内容（按需阅读 references/）\n\n${overview}\n\n使用规则：涉及本域的具体问题时，先读对应的 references 文件再动手；卡片内"来源"字段可回溯原始会话。\n`}
+  : `## 内容（按需阅读 references/）\n\n${overview}\n\n使用规则：涉及本主题的具体问题时，先读对应的 references 文件再动手；卡片内"来源"字段可回溯原始会话。\n`}
 `;
 
   if (dryRun) {

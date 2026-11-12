@@ -22,15 +22,25 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, SessionBeforeCompactEvent, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/context.ts";
-import { atomId, appendAtoms, atomsPath, loadAtoms, logError } from "../../packages/core/lib/atom-store.ts";
+import {
+  atomId, appendAtoms, atomsPath, loadAtoms, logError, type KnowledgeAtom,
+} from "../../packages/core/lib/atom-store.ts";
+import {
+  admissionGate, categoryForType, declaredSource, defaultAtomType, ensureTypeFields, isDocType, keepAsForType, labelForType,
+} from "../../packages/core/lib/admission.ts";
+import { validateAtom } from "../../packages/core/lib/validate.ts";
 import { rescueAtoms, generateCompactionSummary } from "../../packages/core/lib/compaction-rescue.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
 import { applyPatches, intakeDir } from "../../packages/core/lib/apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "../../packages/core/lib/skill-state.ts";
 import { appendUsage } from "../../packages/core/lib/usage-store.ts";
+import { coverageReport } from "../../packages/core/lib/coverage.ts";
+import { runPipeline } from "../../packages/core/lib/pipeline.ts";
+import type { MessageEntry } from "../../packages/core/lib/types.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const EXTRACT_CLI = join(REPO_ROOT, "packages", "core", "scripts", "extract.ts");
+const PIPELINE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "pipeline.ts");
+const EXTRACT_CLI = join(REPO_ROOT, "packages", "core", "scripts", "extract.ts"); // 仅手动回填用
 const APPLY_CLI = join(REPO_ROOT, "packages", "core", "scripts", "apply-patches.ts");
 const DARWIN_CLI = join(REPO_ROOT, "packages", "core", "scripts", "darwin-check.ts");
 const DARWIN_SKILL = join(REPO_ROOT, "skills", "darwin-skill", "SKILL.md");
@@ -46,18 +56,28 @@ setHostContext({
   settingsPath: join(homedir(), ".pi", "agent", "settings.json"),
 });
 
-/** detached spawn 抽取 CLI（quit 终采 / kb_harvest 共用）；fire-and-forget。
- *  子进程靠环境变量传递宿主上下文（CLI 进程无 jiti，core 从注入降级为环境解析）。 */
-function spawnExtract(sessionFile: string): void {
+/**
+ * detached spawn 知识管线 CLI（quit / kb_harvest 共用）；fire-and-forget。
+ * 管线自带覆盖派生：只处理未审消息，重复调用不会重复消耗。
+ */
+function spawnPipeline(sessionFile: string, opts: { maxBatches?: number; budget?: number } = {}): void {
+  const dataDir = process.env.KB_DIR ?? join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge");
+  const home = join(homedir(), ".pi", "agent");
   const child = spawn(
     process.execPath,
-    ["--experimental-strip-types", EXTRACT_CLI, sessionFile],
+    [
+      "--experimental-strip-types", PIPELINE_CLI, sessionFile,
+      "--data-dir", dataDir, "--home", home,
+      "--mode", "incremental",
+      "--max-batches", String(opts.maxBatches ?? 3),
+      "--budget", String(opts.budget ?? 60_000),
+    ],
     {
       detached: true, stdio: "ignore", cwd: REPO_ROOT,
       env: {
         ...process.env,
-        AUTOSKILL_DATA_DIR: process.env.KB_DIR ?? join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge"),
-        AUTOSKILL_HOME: join(homedir(), ".pi", "agent"),
+        AUTOSKILL_DATA_DIR: dataDir,
+        AUTOSKILL_HOME: home,
         PI_MODELS_PATH: process.env.PI_MODELS_PATH ?? "",
       },
     },
@@ -65,7 +85,49 @@ function spawnExtract(sessionFile: string): void {
   child.unref();
 }
 
-/** 后台收集日志的原子计数（kb status 用） */
+// ---------- 进程内管线（每轮异步推进，不阻塞对话） ----------
+let pipelineRunning = false;
+const PIPELINE_MIN_PENDING = 30; // 待审消息少于 30 条不跑（唯一节流条件，不设时间下限）
+
+/**
+ * 每轮之后异步推进知识管线（覆盖派生 → 抽取触发机制 → 知识抽取）。
+ * 触发只看"待审 ≥30 条"：跑完覆盖水位前移、待审归零，天然防抖，不需要时间下限；
+ * 不并发由 pipelineRunning 保证。一次最多 1 批、预算 40k；失败只记日志，绝不打断对话。
+ */
+async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
+  if (pipelineRunning) return;
+  const sm = (ctx as {
+    sessionManager?: {
+      getSessionId?: () => string;
+      getEntries?: () => Array<{ type?: string; id?: string }>;
+    };
+  })?.sessionManager;
+  const id = sm?.getSessionId?.();
+  const all = sm?.getEntries?.() ?? [];
+  const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string") as unknown as MessageEntry[];
+  if (!id || entries.length === 0) return;
+  const cov = coverageReport(entries, id);
+  if (cov.unreviewed < PIPELINE_MIN_PENDING) return;
+
+  pipelineRunning = true;
+  try {
+    const report = await runPipeline({
+      sessionId: id,
+      entries,
+      harness: "pi",
+      maxBatches: 1,
+      budgetTokens: 40_000,
+    });
+    const ui = (ctx as { ui?: { notify?: (m: string, type?: string) => void } }).ui;
+    if (report.atoms > 0) ui?.notify?.(`[知识管道] 知识抽取 ${report.atoms} 条知识（${reason}）`, "info");
+  } catch (e) {
+    logError(`pipeline(${reason}) 失败: ${String(e).slice(0, 200)}`);
+  } finally {
+    pipelineRunning = false;
+  }
+}
+
+/** 后台收集日志的知识卡片计数（kb status 用） */
 function kbStats(): string {
   const atoms = loadAtoms();
   const draft = atoms.filter((a) => a.status === "draft").length;
@@ -80,20 +142,50 @@ function kbStats(): string {
   );
 }
 
-/** 注入给 agent 的提示（无锁方案 1：原子即待办队列 + darwin 体检触发） */
+/** 当前会话 id（拿不到时用固定占位：来源仍可追溯，且不会伪造真实窗口） */
+function safeSessionId(ctx: unknown): string {
+  try {
+    const id = (ctx as { sessionManager?: { getSessionId?: () => string } })?.sessionManager?.getSessionId?.();
+    return typeof id === "string" && id ? id : "unknown-session";
+  } catch {
+    return "unknown-session";
+  }
+}
+
+/** 会话里最后一条 message 的 id（声明型来源的溯源锚点） */
+function lastMessageId(ctx: unknown): string | undefined {
+  try {
+    const entries = (ctx as { sessionManager?: { getEntries?: () => Array<{ type?: string; id?: string }> } })
+      ?.sessionManager?.getEntries?.() ?? [];
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      if (e?.type === "message" && typeof e.id === "string") return e.id;
+    }
+  } catch {
+    // 取不到就不带锚点，来源降级到 session 级
+  }
+  return undefined;
+}
+
+/** 项目名（消息可读性用）：当前工作目录名 */
+function projectName(): string {
+  return process.cwd().split("/").filter(Boolean).pop() ?? "当前项目";
+}
+
+/** 注入给 agent 的提示（无锁方案 1：知识卡片即待办队列 + darwin 体检触发） */
 function pendingNotice(): string | undefined {
   const parts: string[] = [];
   const pend = pendingSummary();
   if (pend.total > 0) {
     const byDomain = Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ");
     if (pend.total > 25) {
-      parts.push(`[知识管道] 待整合原子 ${pend.total} 条（${byDomain}），超过增量阈值。` +
+      parts.push(`[知识管道] 待整合知识卡片 ${pend.total} 条（${byDomain}），超过增量阈值。` +
         `建议用户空闲时跑批量：node --experimental-strip-types ${REPO_ROOT}/packages/core/scripts/assemble.ts && node --experimental-strip-types ${REPO_ROOT}/packages/core/scripts/package-skill.ts --all`);
     } else {
-      parts.push(`[知识管道] 有 ${pend.total} 条待整合知识原子（${byDomain}）。` +
+      parts.push(`[知识管道] 有 ${pend.total} 条待整合知识卡片（${byDomain}）。` +
         `若本会话任务完成后空闲，可按 ${INTEGRATE_GUIDE} 的流程将它们整合进 skills` +
         `（写提案到 ${intakeDir()} 后跑 ${APPLY_CLI}）。` +
-        `不要在用户任务中途做，一次只整合一个域。忽略本提示也不影响正常工作。`);
+        `不要在用户任务中途做，一次只整合一个主题。忽略本提示也不影响正常工作。`);
     }
   }
   // darwin 体检触发：某 skill 增量修改达阈值
@@ -101,7 +193,7 @@ function pendingNotice(): string | undefined {
   if (due.length > 0) {
     const list = due.map((d) => `${d.domain}(${d.edits}次)`).join(", ");
     parts.push(`[skill 体检] ${list} 自上次体检已累计增量修改 ≥ ${darwinThreshold()} 次，建议空闲时按 ${DARWIN_SKILL} ` +
-      `的流程做一次体检（高频域可跑完整优化，长尾域先跑 Phase 0.5-1 评估即可）。` +
+      `的流程做一次体检（高频主题可跑完整优化，长尾主题先跑 Phase 0.5-1 评估即可）。` +
       `完成后运行 ${DARWIN_CLI} --done <domain> 记账。需要用户确认的检查点按该 skill 的流程走。`);
   }
   return parts.length ? parts.join("\n\n") : undefined;
@@ -131,7 +223,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   // ---------- 0b. before_agent_start：首个用户轮注入提示（pending + darwin 体检） ----------
-  pi.on("before_agent_start", async (event) => {
+  pi.on("before_agent_start", async (event, ctx) => {
+    // 用户轮开始前异步推进管线（内部有 10 分钟 + 30 条待审的双重节流）
+    if (event.messageType === "user") void maybeRunPipeline(ctx, "turn");
     if (noticed || event.messageType !== "user") return;
     noticed = true;
     const notice = pendingNotice();
@@ -140,7 +234,7 @@ export default function (pi: ExtensionAPI) {
       message: {
         customType: "kb_pending_notice",
         content: notice,
-        display: "[知识管道] 有待整合知识原子 / skill 体检提示（详见注入内容）",
+        display: "[知识管道] 有待整合知识卡片 / skill 体检提示（详见注入内容）",
       },
     };
   });
@@ -167,46 +261,82 @@ export default function (pi: ExtensionAPI) {
     return undefined; // 放行，不修改不拦截
   });
 
-  // ---------- 1. capture_knowledge：agent 单条声明 ----------
+  // ---------- 1. capture_knowledge：agent 单条声明（过准入规则 + 校验，不再免检） ----------
   const CaptureParams = Type.Object({
-    category: StringEnum(["01", "02", "03", "04", "05"] as const, {
-      description: "知识类别：01业务认知 02操作SOP 03模板骨架 04案例样例 05问题复盘",
+    doc_type: StringEnum(["sop", "spec", "template", "case", "postmortem", "convention", "index", "rubric"] as const, {
+      description:
+        "文档类型：sop操作SOP / spec口径契约 / template模板骨架 / case案例资料 / postmortem问题复盘 / convention环境约定 / index索引线索 / rubric判据标准",
     }),
     content: Type.String({ description: "知识内容：简洁、可独立复用、脱离本对话也能看懂" }),
-    atom_type: Type.Optional(Type.String({ description: "切片名（如 根因切片）；不填则由内容推断归类" })),
-    domain: Type.Optional(Type.String({ description: "业务域 kebab-case（如 gpu-train-ops）" })),
+    why: Type.String({ description: "价值理由：不存会损失什么（具体后果，≥8 字）" }),
+    domain: Type.Optional(Type.String({ description: "业务主题 kebab-case（如 gpu-train-ops）；不填记为 general" })),
+    atom_type: Type.Optional(Type.String({ description: "可选细标签（如 根因切片）" })),
+    expires_when: Type.Optional(Type.String({ description: "失效条件（convention / index 必填，如：目录重构后失效）" })),
+    keep_as: Type.Optional(Type.String({ description: "case 专用：reference（参考案例）或 data（客户资料/真实事实，需脱敏）" })),
   });
 
   pi.registerTool({
     name: "capture_knowledge",
     label: "Capture Knowledge",
     description:
-      "声明一条可复用知识原子存入本地知识库（draft，待后续组装成卡片）。" +
-      "在刚发现有价值结论/踩坑/操作方法时调用；不要在批量罗列信息时调用。",
-    promptSnippet: "capture_knowledge: 将刚产生的可复用知识（结论/踩坑/SOP/模板）存入知识库",
+      "声明一条可复用知识卡片存入本地知识库（带类型与价值理由，待后续组装）。" +
+      "在刚发现有价值结论/踩坑/操作方法/模板/资料时调用；不要在批量罗列信息时调用。",
+    promptSnippet: "capture_knowledge: 将刚产生的可复用知识（结论/踩坑/SOP/模板/资料）存入知识库",
     parameters: CaptureParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const now = new Date().toISOString();
-      const atom = {
-        atom_id: atomId(params.content, []),
-        category: params.category,
-        atom_type: params.atom_type ?? "通用切片",
-        content: params.content,
-        domain: params.domain ?? "",
-        sources: [],
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const p = params as {
+        doc_type: string; content: string; why: string; domain?: string; atom_type?: string; expires_when?: string; keep_as?: string;
+      };
+      if (!isDocType(p.doc_type)) {
+        return {
+          content: [{
+            type: "text",
+            text: `未入库：doc_type "${p.doc_type}" 非法。只允许 sop/spec/template/case/postmortem/convention/index/rubric。`,
+          }],
+        };
+      }
+      const sessionId = safeSessionId(ctx);
+      const source = declaredSource(sessionId, lastMessageId(ctx));
+      const atom: KnowledgeAtom = {
+        atom_id: atomId(p.content, [source]),
+        category: categoryForType(p.doc_type),
+        atom_type: p.atom_type ?? defaultAtomType(p.doc_type),
+        content: p.content,
+        domain: (p.domain ?? "").trim() || "general",
+        sources: [source],
         confidence: 0.8,
         version: 1,
         superseded_by: null,
         refs: [],
         status: "draft",
-        extracted_at: now,
+        extracted_at: new Date().toISOString(),
         extracted_by: "agent-tool",
+        doc_type: p.doc_type,
+        keep_as: p.doc_type === "case" && p.keep_as === "data" ? "data" : keepAsForType(p.doc_type),
+        why: p.why,
+        expires_when: p.expires_when ? p.expires_when.trim() : null,
       };
+      // 结构化字段用 content 兜底（工具入参没有 step/concept_name 等字段）
+      ensureTypeFields(atom);
+      // 准入规则（无来源/敏感信息/价值理由）+ 结构校验：声明型入口不再免检
+      const gate = admissionGate(atom, { requireWhy: true });
+      if (!gate.ok) {
+        return { content: [{ type: "text", text: `未入库：${gate.reasons.join("；")}` }] };
+      }
+      const v = validateAtom(atom, []);
+      if (!v.ok) {
+        return { content: [{ type: "text", text: `未入库：${v.errors.join("；")}` }] };
+      }
       // 幂等：同 content 已存在则不重复入库
       const dup = loadAtoms().some((a) => a.content === atom.content);
       if (!dup) appendAtoms([atom]);
       return {
-        content: [{ type: "text", text: dup ? "已存在，跳过" : `已入库(draft): ${atom.atom_id}` }],
+        content: [{
+          type: "text",
+          text: dup
+            ? `已存在，跳过（${labelForType(p.doc_type)}）`
+            : `已记录 1 条「${labelForType(p.doc_type)}」→ ${atom.domain || "未标主题"}（草稿，待整合）${atom.keep_as === "data" ? "｜资料层，不进技能正文" : ""}`,
+        }],
       };
     },
   });
@@ -218,13 +348,16 @@ export default function (pi: ExtensionAPI) {
     description:
       "后台启动本会话的知识抽取（独立进程，不阻塞对话）。" +
       "在任务收尾、或对话中积累了大量未捕获知识时调用；重复调用幂等（已抽窗口自动跳过）。",
-    promptSnippet: "kb_harvest: 后台抽取本会话知识原子（收尾终采）",
+    promptSnippet: "kb_harvest: 后台抽取本会话知识卡片（收尾终采）",
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const sessionFile = ctx.sessionManager.getSessionFile();
-      spawnExtract(sessionFile);
+      spawnPipeline(sessionFile, { maxBatches: 2, budget: 40_000 });
       return {
-        content: [{ type: "text", text: `已后台启动抽取: ${sessionFile}\n${kbStats()}` }],
+        content: [{
+          type: "text",
+          text: `已开始发现并抽取「${projectName()}」会话的知识（后台运行，只处理未审消息）。\n${kbStats()}`,
+        }],
       };
     },
   });
@@ -256,15 +389,15 @@ export default function (pi: ExtensionAPI) {
       summary = await generateCompactionSummary(toSummarize, previousSummary, savedIds, signal);
     } catch (err) {
       logError(`compaction summary生成失败: ${String(err).slice(0, 300)}`);
-      // summary 失败但原子已救回：放行默认 compaction（不返回 compaction 字段）
+      // summary 失败但知识卡片已救回：放行默认 compaction（不返回 compaction 字段）
       ctx.ui.notify(
-        `[knowledge-capture] 已抢救 ${savedIds.length} 原子（summary 生成失败，走默认压缩）`,
+        `[knowledge-capture] 已抢救 ${savedIds.length} 知识卡片（summary 生成失败，走默认压缩）`,
         "warning",
       );
       return;
     }
 
-    ctx.ui.notify(`[knowledge-capture] 抢救完成：${savedIds.length} 原子已 published`, "info");
+    ctx.ui.notify(`[knowledge-capture] 抢救完成：${savedIds.length} 知识卡片已 published`, "info");
     return {
       compaction: {
         summary,
@@ -280,15 +413,27 @@ export default function (pi: ExtensionAPI) {
     if (event.reason !== "quit") return; // reload/new/resume/fork 不是会话终点，跳过
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (!sessionFile) return;
-    spawnExtract(sessionFile);
-    if (ctx.hasUI) ctx.ui.notify(`[knowledge-capture] 已后台启动终采: ${sessionFile}`, "info");
+    spawnPipeline(sessionFile, { maxBatches: 3, budget: 60_000 });
+    if (ctx.hasUI) ctx.ui.notify(`[知识管道] 已开始整理「${projectName()}」会话的知识（后台）`, "info");
   });
 
   // ---------- /kb：知识库状态（最小实现） ----------
   pi.registerCommand("kb", {
-    description: "知识库状态（原子计数与路径）",
+    description: "知识库状态（知识卡片计数与路径）",
     handler: async (_args, ctx) => {
-      ctx.ui.notify(kbStats(), "info");
+      let extra = "";
+      try {
+        const id = ctx.sessionManager.getSessionId();
+        const all = ctx.sessionManager.getEntries() as Array<{ type?: string; id?: string }>;
+        const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string") as unknown as MessageEntry[];
+        if (id && entries.length > 0) {
+          const cov = coverageReport(entries, id);
+          extra = `\n本条会话：已覆盖 ${cov.covered}/${cov.total}，待审 ${cov.unreviewed}`;
+        }
+      } catch {
+        // 状态展示失败不影响命令
+      }
+      ctx.ui.notify(kbStats() + extra, "info");
     },
   });
 

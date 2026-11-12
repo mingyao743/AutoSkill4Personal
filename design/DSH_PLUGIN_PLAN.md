@@ -101,7 +101,7 @@ export const inject = ['skills']
 export function apply(ctx: Context) {
   setHostContext({ host: "dsh", dataDir: dshDataDir() })            // 独立数据目录
   const provider: SkillProvider = {
-    list: () => domainCandidates(),      // 每知识域一个 candidate
+    list: () => domainCandidates(),      // 每知识主题一个 candidate
     get: (n) => loadDomainBody(n),       // 按需读全文（可记 loaded 账，见 4.4）
   }
   const dispose = ctx.skills.registerProvider(provider)
@@ -158,7 +158,7 @@ export function apply(ctx: Context) {
 
 - [ ] **M0** 引擎去宿主化：HostContext 注入改造 + 两形态回归（`/kb` 与 smoke 抽取各跑通一次，pi 侧数据目录必须原位不动）
 - [ ] **M1** dsh bundle 骨架：manifest + patch；`dsh plugin --profile web add` 走通，`--dump-config` 出现 autoskill 层（同时验证 R1：TS entry 是否可用）
-- [ ] **M2** provider 上线：注册成功、模型可见知识域目录、`get` 返回全文；dsh 数据目录首次导入（从现有 session 用 CLI 补抽，`--data-dir` 指 dsh 目录）
+- [ ] **M2** provider 上线：注册成功、模型可见知识主题目录、`get` 返回全文；dsh 数据目录首次导入（从现有 session 用 CLI 补抽，`--data-dir` 指 dsh 目录）
 - [ ] **M3** 两工具：capture_knowledge / kb_harvest 在 dsh 会话可调用且原子入库
 - [ ] **M4** 生命周期入口：查证 R2 并挂接 compaction / shutdown；查证失败则记录替代（Schedule 回扫）
 - [ ] **M5** dsh 原生增值：Schedule 定时 assemble + darwin 回扫

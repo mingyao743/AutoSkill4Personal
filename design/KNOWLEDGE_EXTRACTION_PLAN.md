@@ -1,7 +1,7 @@
 # 从 session 提取知识体系方案：对话记录 → 单点信息 → 知识
 
-> 目标：把 pi 对话记录（session.jsonl）按既定 5 类知识分类，拆成原子切片，再组装成知识卡片与业务域知识体系。
-> 设计原则：**atom-first（原子优先）**——先抽原子入库，卡片/体系是原子之上的视图，可重组、可跨域复用、可演进。
+> 目标：把 pi 对话记录（session.jsonl）按既定 5 类知识分类，拆成原子切片，再组装成知识卡片与业务主题知识体系。
+> 设计原则：**atom-first（原子优先）**——先抽原子入库，卡片/体系是原子之上的视图，可重组、可跨主题复用、可演进。
 > 切分策略：**窗口滑动（user msg 对齐）**，不做信号预筛，全量覆盖喂 LLM。简单优先。
 > 输入契约：用户既定的 5 类 × 切片清单 × 组装方式（不改 schema，作为 LLM 抽取输出契约）。
 > 涵盖：离线批处理 + 在线触发（含 compaction 抢救），两者共享同一套窗口策略、原子 schema、抽取 prompt。
@@ -14,15 +14,15 @@
 第1层 对话记录                第2层 单点信息（原子）           第3层 知识（卡片/体系）
 ┌─────────────────┐         ┌──────────────────────┐       ┌────────────────────────┐
 │ session.jsonl   │ 窗口切分 │ atoms/  (扁平池)      │ 组装  │ cards/  (5类卡片)        │
-│ message树+工具调用│ ──────► │ category 01-05       │ ────► │ domains/ (业务域知识体系) │
-│                 │ user对齐 │ atom_type 切片类型    │ LLM   │   按域分库，5类齐全       │
-└─────────────────┘ ~500条/窗 │ content + source ref │ 去重  │   域间引用               │
+│ message树+工具调用│ ──────► │ category 01-05       │ ────► │ domains/ (业务主题知识体系) │
+│                 │ user对齐 │ atom_type 切片类型    │ LLM   │   按主题分库，5类齐全       │
+└─────────────────┘ ~500条/窗 │ content + source ref │ 去重  │   主题间引用               │
                             │ confidence/version   │ 聚合  └────────────────────────┘
                             └──────────────────────┘
                             ↑ compaction抢救层复用同策略(把messagesToSummarize当窗口)
 ```
 
-**为什么 atom-first**：原子是最小、扁平、可溯源单元，卡片和体系是它之上的视图，可重组、可跨域复用、可随会话演进。
+**为什么 atom-first**：原子是最小、扁平、可溯源单元，卡片和体系是它之上的视图，可重组、可跨主题复用、可随会话演进。
 
 **为什么窗口滑动而非事件切分**：简单优先，无信号词典维护，无漏检，覆盖全。事件完整性靠"user msg 对齐窗口边界"保证，不靠规则预筛事件。成本用便宜模型（haiku/flash）压住。
 
@@ -75,7 +75,7 @@ session.jsonl 是扁平消息流，直接切成窗口喂 LLM。**窗口边界落
   "category": "02",                      // 01业务认知 02SOP 03模板 04案例 05复盘
   "atom_type": "动作切片",               // 用户切片清单中的某一项（原样保留中文名）
   "content": "nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv 查GPU占用",
-  "domain": "fault-diag-rl",             // 业务域（见第四节）
+  "domain": "fault-diag-rl",             // 业务主题（见第四节）
   "sources": [                           // ★可溯源，允许多源
     {"session_id":"01a0aef7","window_id":"win_01a0aef7_001","msg_range":["m00340","m00390"]}
   ],
@@ -103,7 +103,7 @@ session.jsonl 是扁平消息流，直接切成窗口喂 LLM。**窗口边界落
 对每个命中的切片，输出一个 atom：
   - category/atom_type: 从上表严格取值，不得发明新切片
   - content: 简洁、可独立复用、去会话噪音、去敏感信息
-  - domain: 推断业务域（fault-diag-rl / trans-term-retrieve / pi-ops / xeno-agent / 评测方法论 / 其他）
+  - domain: 推断业务主题（fault-diag-rl / trans-term-retrieve / pi-ops / xeno-agent / 评测方法论 / 其他）
   - confidence: 0-1
   - msg_range: 本 atom 来自窗口内哪段消息（尽量精确到子范围，便于回溯）
   - refs: 本 atom 引用了哪些其他已有切片（如有）
@@ -129,7 +129,7 @@ session.jsonl 是扁平消息流，直接切成窗口喂 LLM。**窗口边界落
 
 ---
 
-## 四、第 3 层：原子 → 知识卡片与业务域知识体系
+## 四、第 3 层：原子 → 知识卡片与业务主题知识体系
 
 ### 4.1 卡片组装（按用户的"组装方式"）
 
@@ -143,33 +143,33 @@ session.jsonl 是扁平消息流，直接切成窗口喂 LLM。**窗口边界落
 
 组装由 LLM 完成（输入=某 domain 某类的全部 atoms，输出=按格式的卡片 md）。组装是**视图**，原子是**事实**，可反复重组。
 
-### 4.2 业务域知识体系（"一个个知识体系"）
+### 4.2 业务主题知识体系（"一个个知识体系"）
 
-**一个知识体系 = 某业务域下 5 类齐全 + 卡片间关联图。** 域内 5 类不全则只是"素材库"，不算体系。
+**一个知识体系 = 某业务主题下 5 类齐全 + 卡片间关联图。** 主题内 5 类不全则只是"素材库"，不算体系。
 
 ```
 domains/
 ├── fault-diag-rl/
-│   ├── MAP.md            # 该域 5 类卡片索引 + 卡片关系图 + 域概况
-│   ├── atoms.jsonl       # 该域全部原子（从 atoms/ 按域筛选的视图）
-│   └── links.json        # 域内引用 + 域间引用
+│   ├── MAP.md            # 该主题 5 类卡片索引 + 卡片关系图 + 主题概况
+│   ├── atoms.jsonl       # 该主题全部原子（从 atoms/ 按主题筛选的视图）
+│   └── links.json        # 主题内引用 + 主题间引用
 ├── trans-term-retrieve/
 ├── pi-ops/               # pi 配置/session/插件 等
-├── gpu-train-ops/        # 可从 fault-diag-rl 抽出独立成域（GPU 运维跨项目复用）
+├── gpu-train-ops/        # 可从 fault-diag-rl 抽出独立成主题（GPU 运维跨项目复用）
 └── eval-methodology/     # 评测方法论（跨多个项目共享）
 ```
 
-**域的划分原则**：按"可复用的最小自治工作域"，不严格等于项目目录。如 `gpu-train-ops` 从 fault-diag-rl 抽离独立成域——因为它在多个项目都会用到，跨域引用比塞进单一项目更有价值。
+**主题的划分原则**：按"可复用的最小自治工作主题"，不严格等于项目目录。如 `gpu-train-ops` 从 fault-diag-rl 抽离独立成主题——因为它在多个项目都会用到，跨主题引用比塞进单一项目更有价值。
 
 ### 4.3 合并机制（你说的"未来合并成一个个知识体系"）
 
 | 合并场景 | 机制 | 触发 |
 |---|---|---|
 | **原子去重** | 同 `category+atom_type` 且 content embedding 相似度>阈值 → 合并，保留多 sources，取最高 confidence 版本 | 抽取后批处理 |
-| **跨窗口聚合** | 多个窗口抽到同概念（如"reward 设计"在 win_001/win_005）→ 合并成一个卡片，记录演进链 | 域内 atom 数 ≥3 |
+| **跨窗口聚合** | 多个窗口抽到同概念（如"reward 设计"在 win_001/win_005）→ 合并成一个卡片，记录演进链 | 主题内 atom 数 ≥3 |
 | **演进管理** | 同原子内容随会话变化（reward 从 NDCG→llm judge 根因）→ 新建 version，旧版 `superseded_by` 指向新版，保留历史 | LLM 检测到同 atom_type 内容冲突 |
-| **跨域引用** | 一原子被多域引用（如"llm judge 根因"在 fault-diag-rl 和 eval-methodology 都用）→ 原子归属主域，他域 `refs` 引用，不复制 | 组装卡片时 LLM 标注 refs |
-| **域升级为体系** | 某 domain 的 5 类卡片都齐全 → 从"素材库"升级为"知识体系"，生成 MAP.md | 域内 5 类均有 ≥1 卡片 |
+| **跨主题引用** | 一原子被多主题引用（如"llm judge 根因"在 fault-diag-rl 和 eval-methodology 都用）→ 原子归属主主题，他主题 `refs` 引用，不复制 | 组装卡片时 LLM 标注 refs |
+| **主题升级为体系** | 某 domain 的 5 类卡片都齐全 → 从"素材库"升级为"知识体系"，生成 MAP.md | 主题内 5 类均有 ≥1 卡片 |
 
 ### 4.4 演进管理（关键，避免知识腐化）
 
@@ -188,12 +188,12 @@ atom_B (v2): reward 用 llm judge 根因   [superseded_by: null]    # 01a0e5de �
 
 ```
 knowledge/
-├── atoms/                          # 第2层：原子池（全域扁平共享，单一真相源）
+├── atoms/                          # 第2层：原子池（全主题扁平共享，单一真相源）
 │   ├── atom_<hash>.json            # 一个原子一个文件
 │   └── index.jsonl                 # 原子索引（id/category/atom_type/domain/confidence/sources/window_id）
 ├── cards/                          # 第3层：卡片（组装视图，可重建）
 │   ├── business/  sop/  template/  case/  retro/
-├── domains/                        # 知识体系（按业务域）
+├── domains/                        # 知识体系（按业务主题）
 │   ├── <domain>/MAP.md + atoms.jsonl + links.json
 ├── _drafts/                        # 待 review 的原子和卡片
 ├── _windows/                       # 窗口切分中间产物（可清，便于重跑）
@@ -211,7 +211,7 @@ knowledge/
 
 ### 6.1 离线批处理
 
-每周扫 `~/.pi/agent/sessions/` 新增会话，跑完整管道：窗口切分 → LLM 抽取 → 去重聚合 → 更新卡片 → 更新域 MAP。纯脚本+LLM，实现难度低。**建议起步用这个**，跑通管道攒出第一批原子后再上在线触发。
+每周扫 `~/.pi/agent/sessions/` 新增会话，跑完整管道：窗口切分 → LLM 抽取 → 去重聚合 → 更新卡片 → 更新主题 MAP。纯脚本+LLM，实现难度低。**建议起步用这个**，跑通管道攒出第一批原子后再上在线触发。
 
 ### 6.2 在线触发（pi extension 承载）
 
@@ -283,7 +283,7 @@ pi.registerTool({
     category: StringEnum(["01","02","03","04","05"]),
     atom_type: Type.String({description: "用户切片清单中的某项中文名"}),
     content: Type.String({description: "简洁可复用，去会话噪音去敏感信息"}),
-    domain: Type.String({description: "业务域推断"}),
+    domain: Type.String({description: "业务主题推断"}),
     refs: Type.Optional(Type.Array(Type.String())),
   }),
   async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -302,7 +302,7 @@ pi.registerTool({
 | 反哺场景 | 机制 | 实现 |
 |---|---|---|
 | 抽到"05 改进项"（如"agent 不应 sleep 等待"）| 当轮注入提醒 | `pi.sendMessage({customType:"kb-reminder", content:"提醒：刚抽到改进项..."}, {deliverAs:"steer", triggerTurn:true})` |
-| 抽到"02 SOP"且该域已有 skill | 下次加载该 skill | `resources_discover` 事件贡献 `skillPaths` |
+| 抽到"02 SOP"且该主题已有 skill | 下次加载该 skill | `resources_discover` 事件贡献 `skillPaths` |
 | 抽到"01 业务认知"与既有规则冲突 | 提示用户 review | `ctx.ui.notify("⚠️ 新认知与既有atom_X冲突，review?","warn")` |
 | 用户主动查沉淀队列 | 命令 | `pi.registerCommand("kb-review", ...)` 列出 `_drafts` |
 
@@ -444,8 +444,8 @@ export default function (pi: ExtensionAPI) {
 knowledge/domains/<domain>/  ──打包──►  ~/.pi/agent/skills/<name>/SKILL.md + scripts/ + references/
 ```
 
-- 一个域可生成多个 skill：`fault-diag-rl` 域 → `fault-diag-rl-context`(项目地图) + `rl-reward-design`(决策清单)
-- skill 的 `description` 从该域的"业务认知/边界"切片生成，决定加载时机
+- 一个主题可生成多个 skill：`fault-diag-rl` 主题 → `fault-diag-rl-context`(项目地图) + `rl-reward-design`(决策清单)
+- skill 的 `description` 从该主题的"业务认知/边界"切片生成，决定加载时机
 - 知识体系不依赖 skill 也可用（喂 RAG、出报告、人工查阅）
 - **反方向**：已存在的 skill（如 `NLP系统版本对比评测`）可作为"03 模板 + 04 案例"切片的来源，反向回灌原子池
 
@@ -473,8 +473,8 @@ session 01a0aef7 (RL 运维, 452条)
   │
   └─合并成体系
       domains/fault-diag-rl/MAP.md (含 5类卡片索引+关系图)
-      domains/gpu-train-ops/  (从 fault-diag-rl 抽离独立成域,跨项目复用)
-      domains/pi-ops/agent-behavior-rules.md (吸收"不要sleep"等跨域反模式)
+      domains/gpu-train-ops/  (从 fault-diag-rl 抽离独立成主题,跨项目复用)
+      domains/pi-ops/agent-behavior-rules.md (吸收"不要sleep"等跨主题反模式)
 ```
 
 最终这个体系可打包成 `gpu-train-ops` skill 给 agent 用，也可喂 RAG 检索。
@@ -490,7 +490,7 @@ session 01a0aef7 (RL 运维, 452条)
 | 3. compaction 抢救 extension | compaction 前抽原子入 atoms/ | **P0（不可逆，最高价值）** | 在线 |
 | 4. 去重/演进脚本 | embedding 去重 + superseded 链 | P1 | 离线 |
 | 5. 组装 prompt + 生成卡片 | `cards/` 五类卡片 | P1 | 离线 |
-| 6. 域划分 + MAP 生成 | `domains/*/MAP.md` | P1 | 离线 |
+| 6. 主题划分 + MAP 生成 | `domains/*/MAP.md` | P1 | 离线 |
 | 7. 窗口攒满抽取（层1）+ 主动工具 | `_drafts` 攒原子 + agent 主动声明 | P1 | 在线 |
 | 8. review 面板（`kb-review` 命令）| 人工确认 `_drafts` | P2 | 在线 |
 | 9. 知识体系 → pi skill 打包器 | `~/.pi/agent/skills/` | P2 | 离线 |
@@ -504,7 +504,7 @@ session 01a0aef7 (RL 运维, 452条)
 
 ## 十、关键设计决策（why）
 
-1. **atom-first 而非 card-first**：你要"合并成一个个知识体系"，意味着原子要能跨域重组。若直接生成卡片/skill，会锁死成一次性产物，无法合并演进。
+1. **atom-first 而非 card-first**：你要"合并成一个个知识体系"，意味着原子要能跨主题重组。若直接生成卡片/skill，会锁死成一次性产物，无法合并演进。
 2. **窗口滑动而非事件切分**：简单优先，无信号词典维护，无漏检，覆盖全。事件切分那层中间抽象在冷启动期不值它的复杂度。
 3. **窗口边界对齐 user msg（而非硬切500条）**：避免把一个事件（user问+agent答+工具结果）劈成两半导致两边抽不出完整原子。零成本修正，消除硬切硬伤。
 4. **不做信号预筛全量喂 LLM**：冷启动即可用，无漏检。成本用便宜模型（haiku/flash）压住。权衡是会抽到无知识片段，但简单性优先。
@@ -515,9 +515,9 @@ session 01a0aef7 (RL 运维, 452条)
 9. **默认写 _drafts 不入正式 atoms**（除 compaction 抢救）：在线抽取上下文可能不完整需 review；但 compaction 抢救的片段是完整连续消息，质量高直接入池。
 10. **自定义 compaction summary 带原子索引**：让后续会话能从 summary 看到已沉淀原子，可回溯，不丢失"这部分对话被抽过什么"的信息。
 11. **source 强制可溯源**：pi message 有 `id` 字段，天然支持。无 source 的 atom 拒绝入库——去重、演进、回溯、信任的基石。
-12. **atom_type 枚举锁死**：只允许用户给的切片清单内的值，LLM 不得发明新切片。保证跨窗口跨域原子可比较、可聚合。
+12. **atom_type 枚举锁死**：只允许用户给的切片清单内的值，LLM 不得发明新切片。保证跨窗口跨主题原子可比较、可聚合。
 13. **演进用 superseded 链而非覆盖**：保留历史决策理由（"为什么从 NDCG 改 llm judge"），避免新会话覆盖旧知识后丢失 rationale。
-14. **域按"可复用最小自治工作域"而非项目目录**：如 gpu-train-ops 跨项目复用，独立成域比塞进 fault-diag-rl 更有价值。
+14. **主题按"可复用最小自治工作主题"而非项目目录**：如 gpu-train-ops 跨项目复用，独立成主题比塞进 fault-diag-rl 更有价值。
 15. **反哺克制**：在线触发是"捕获"不是"干预"，反哺只做提醒（steer）不强行改对话。用户始终有 review 关卡。
 16. **离线批处理优先于在线即时（除 compaction 抢救）**：管道未跑通前不碰在线层1/层3；但 compaction 抢救（层2）独立可用，不依赖离线跑通。
 

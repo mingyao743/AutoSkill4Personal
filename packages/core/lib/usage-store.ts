@@ -8,7 +8,7 @@
  *   rejected  — 会话回扫判定：修正/推翻了 skill 指引
  *
  * 语义约定：
- *   - 纯日志：append 失败不影响主流程；允许极小概率重复行（不做原子替换）
+ *   - 纯日志：append 失败不影响主流程；允许极小概率重复行（不做知识卡片替换）
  *   - 幂等键：window_id+skill+event 组合已存在则跳过（loaded/accepted/rejected 带 window_id；
  *     edited 无窗口概念，靠 appliedPatches 账本防重，这里不查重）
  *   - 与 skill-state.json 解耦：state 是"整合事务"的事实源，本文件只做使用分析

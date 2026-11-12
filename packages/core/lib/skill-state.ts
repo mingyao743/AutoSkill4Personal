@@ -1,15 +1,15 @@
 /**
- * skill-state：原子的"已进 skill"账本（方案 1 无锁并发的幂等基石）。
+ * skill-state：知识卡片的"已进 skill"账本（方案 1 无锁并发的幂等基石）。
  *
- * 知识不会丢的保证：applier 把"写 skill 文件"和"标记原子已整合"绑在同一事务里
- *（state 文件原子写，见 apply-patches.ts）。任何失败路径最坏结果是重做，不是丢知识。
+ * 知识不会丢的保证：applier 把"写 skill 文件"和"标记知识卡片已整合"绑在同一事务里
+ *（state 文件知识卡片写，见 apply-patches.ts）。任何失败路径最坏结果是重做，不是丢知识。
  *
- * 并发语义：state 写入用 tmp+rename 原子替换；两个 applier 并发时后者可能覆盖前者的标记
- * → 丢标记 ≠ 丢知识，原子回 pending 下轮重做（幂等），最终一致。
+ * 并发语义：state 写入用 tmp+rename 知识卡片替换；两个 applier 并发时后者可能覆盖前者的标记
+ * → 丢标记 ≠ 丢知识，知识卡片回 pending 下轮重做（幂等），最终一致。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { kbDir, loadAtoms, type KnowledgeAtom } from "./atom-store.ts";
+import { kbDir, loadAtoms, isInstructionAtom, type KnowledgeAtom } from "./atom-store.ts";
 import { usageSummary } from "./usage-store.ts";
 
 export interface SkillState {
@@ -47,7 +47,7 @@ export function loadSkillState(): SkillState {
 }
 const emptyState = (): SkillState => ({ integrated: [], appliedPatches: {}, domainEdits: {}, lastDarwinCheck: {} });
 
-/** 原子写：tmp + rename（读方永远看到完整文件） */
+/** 知识卡片写：tmp + rename（读方永远看到完整文件） */
 export function saveSkillState(state: SkillState): void {
   mkdirSync(kbDir(), { recursive: true });
   state.updated_at = new Date().toISOString();
@@ -65,10 +65,10 @@ export function markIntegrated(atomIds: string[]): SkillState {
   return st;
 }
 
-/** 待整合原子 = 池中未标记的（agent 增量整合的待办队列，就是原子本身） */
+/** 待整合知识卡片 = 池中未标记的 instruction 知识卡片（reference / data 不进整合队列） */
 export function pendingAtoms(): KnowledgeAtom[] {
   const integrated = new Set(loadSkillState().integrated);
-  return loadAtoms().filter((a) => !integrated.has(a.atom_id));
+  return loadAtoms().filter((a) => isInstructionAtom(a) && !integrated.has(a.atom_id));
 }
 
 /** darwin 体检触发阈值（某 skill 增量修改达到该次数建议体检） */

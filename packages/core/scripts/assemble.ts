@@ -3,8 +3,8 @@
  * P1 组装：atoms.jsonl → knowledge/cards/
  *
  * 流程：
- *   1. 读原子（默认全部，--published-only 只取已审）
- *   2. 按 (category, domain) 分组 → 组内 LLM 判重聚类（结果缓存 dedup-cache.json，原子集不变不重跑）
+ *   1. 读知识卡片（默认全部，--published-only 只取已审）
+ *   2. 按 (category, domain) 分组 → 组内 LLM 判重聚类（结果缓存 dedup-cache.json，知识卡片集不变不重跑）
  *   3. 簇合并：merged_content（LLM 吸收各条信息）或最高置信度原文 + sources 并集 + 最高 confidence
  *   4. 按 5 类既定组装方式渲染卡片（确定性渲染，无 LLM）：
  *      01 业务认知 → 知识卡片（按切片分节）
@@ -14,19 +14,19 @@
  *      05 复盘     → 问题→根因→修复 全链路
  *   5. 生成 INDEX.md
  *
- * 组装是视图，原子是事实：不改动 atoms.jsonl，可反复重建（--rebuild 即删目录重来）。
+ * 组装是视图，知识卡片是事实：不改动 atoms.jsonl，可反复重建（--rebuild 即删目录重来）。
  *
  * 用法：
  *   node --experimental-strip-types scripts/assemble.ts [--domain X] [--category 01] [--published-only]
  *        [--no-llm] [--dry] [--rebuild]
- *   --no-llm    跳过判重（每原子独立成卡，调试渲染用）
+ *   --no-llm    跳过判重（每知识卡片独立成卡，调试渲染用）
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setHostContextFromArgs } from "../lib/context.ts";
 import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
-import { atomsPath, kbDir, loadAtoms, type KnowledgeAtom } from "../lib/atom-store.ts";
+import { atomsPath, isInstructionAtom, kbDir, loadAtoms, type KnowledgeAtom } from "../lib/atom-store.ts";
 
 // ---------- 参数 ----------
 setHostContextFromArgs(process.argv);
@@ -58,13 +58,15 @@ const CACHE_PATH = join(kbDir(), "dedup-cache.json");
 
 // ---------- 1. 分组 ----------
 const all = loadAtoms().filter((a) => {
+  // 只有 instruction 进技能管线；reference/data 留在知识卡片池，不组装成卡片
+  if (!isInstructionAtom(a)) return false;
   if (publishedOnly && a.status !== "published") return false;
   if (filterDomain && (a.domain || "general") !== filterDomain) return false;
   if (filterCategory && a.category !== filterCategory) return false;
   return true;
 });
 if (all.length === 0) {
-  console.error(`无原子（${atomsPath()} ${publishedOnly ? "只看 published" : "全部"}）`);
+  console.error(`无知识卡片（${atomsPath()} ${publishedOnly ? "只看 published" : "全部"}）`);
   process.exit(1);
 }
 const groups = new Map<string, KnowledgeAtom[]>();
@@ -73,7 +75,7 @@ for (const a of all) {
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key)!.push(a);
 }
-console.log(`原子 ${all.length} 个 → ${groups.size} 组 (category|domain)${noLlm ? "，--no-llm 跳过判重" : ""}`);
+console.log(`知识卡片 ${all.length} 个 → ${groups.size} 组 (category|domain)${noLlm ? "，--no-llm 跳过判重" : ""}`);
 
 // ---------- 2. LLM 判重（组内，缓存） ----------
 interface Cluster { ids: string[]; merged_content?: string }
@@ -83,7 +85,7 @@ const cache: Record<string, { inputHash: string; clusters: Cluster[] }> =
 const groupHash = (atoms: KnowledgeAtom[]): string =>
   createHash("sha1").update(atoms.map((a) => a.atom_id).sort().join(",")).digest("hex").slice(0, 16);
 
-const CHUNK = 40; // 每次判重的原子数上限（跨块重复下次组装迭代覆盖）
+const CHUNK = 40; // 每次判重的知识卡片数上限（跨块重复下次组装迭代覆盖）
 
 async function dedupGroup(atoms: KnowledgeAtom[]): Promise<Cluster[]> {
   const out: Cluster[] = [];
@@ -96,15 +98,15 @@ async function dedupGroup(atoms: KnowledgeAtom[]): Promise<Cluster[]> {
     const listing = chunk.map((a) =>
       `- ${a.atom_id} [${a.atom_type}] conf=${a.confidence}\n  ${a.content.replace(/\n/g, " ").slice(0, 300)}`
     ).join("\n");
-    const system = `你是知识原子判重器。输入是同一知识域内的一批原子（id、切片名、置信度、内容）。
-找出表达"同一知识"的重复/近似重复原子，输出聚类合并建议。
+    const system = `你是知识卡片判重器。输入是同一知识主题内的一批知识卡片（id、切片名、置信度、内容）。
+找出表达"同一知识"的重复/近似重复知识卡片，输出聚类合并建议。
 
 规则：
-1. 只在内容陈述同一事实/规则/步骤/问题时合并；互补细节、不同粒度、不同场景的原子不合并。
+1. 只在内容陈述同一事实/规则/步骤/问题时合并；互补细节、不同粒度、不同场景的知识卡片不合并。
 2. 合并簇输出 merged_content：吸收各条信息的最佳表述（200字内、可独立复用）。
-3. 非重复原子不要出现在输出里（保留为独立原子）。
+3. 非重复知识卡片不要出现在输出里（保留为独立知识卡片）。
 只输出 JSON：{"clusters":[{"ids":["atom_xxx","atom_yyy"],"merged_content":"..."}]}，无重复则 {"clusters":[]}。`;
-    const user = `原子清单：\n${listing}`;
+    const user = `知识卡片清单：\n${listing}`;
 
     let clusters: Cluster[] = [];
     let parseOk = false;
@@ -120,7 +122,7 @@ async function dedupGroup(atoms: KnowledgeAtom[]): Promise<Cluster[]> {
         parseOk = true;
       }
     } catch (e) {
-      console.error(`  判重调用失败（本块保留独立原子）: ${String(e).slice(0, 150)}`);
+      console.error(`  判重调用失败（本块保留独立知识卡片）: ${String(e).slice(0, 150)}`);
     }
     if (parseOk) cache[h] = { inputHash: h, clusters }; // 失败不缓存，下次重试
     out.push(...clusters);
@@ -128,7 +130,7 @@ async function dedupGroup(atoms: KnowledgeAtom[]): Promise<Cluster[]> {
   return out;
 }
 
-const clustersByGroup = new Map<string, KnowledgeAtom[]>(); // 合并后的原子（含 singleton）
+const clustersByGroup = new Map<string, KnowledgeAtom[]>(); // 合并后的知识卡片（含 singleton）
 let totalClusters = 0;
 for (const [key, atoms] of groups) {
   const clusters = noLlm ? [] : await dedupGroup(atoms);
@@ -157,7 +159,7 @@ console.log(`判重完成：${totalClusters} 个合并簇`);
 const fmtSources = (a: KnowledgeAtom): string =>
   (a.sources ?? []).map((s) => `${s.session_id}:${s.msg_range[0]}→${s.msg_range[1]}`).join(", ") || "agent声明";
 
-/** 原子 → markdown 条目（通用元信息 + 特化字段） */
+/** 知识卡片 → markdown 条目（通用元信息 + 特化字段） */
 function renderAtom(a: KnowledgeAtom, extra: string): string {
   return `### ${a.atom_type} · ${a.atom_id}\n\n${a.content}\n\n` +
     (extra ? extra + "\n" : "") +
@@ -187,7 +189,7 @@ if (!dryRun) {
   mkdirSync(CARDS_DIR, { recursive: true });
 }
 
-const indexRows: string[] = ["| 卡片 | 原子数 |", "|---|---|"];
+const indexRows: string[] = ["| 卡片 | 知识卡片数 |", "|---|---|"];
 for (const [key, atoms] of [...clustersByGroup.entries()].sort()) {
   const [category, domain] = key.split("|");
   const dir = CATEGORY_DIRS[category] ?? `0${category}-misc`;
@@ -211,12 +213,12 @@ for (const [key, atoms] of [...clustersByGroup.entries()].sort()) {
     ).join("\n");
 
   const md = `# ${domain} · ${name}\n\n` +
-    `> 知识卡片（组装视图，源：${atomsPath()} 可重建）。原子 ${total} 个${total !== atoms.length ? `，判重合并后 ${atoms.length} 个` : ""}。生成于 ${new Date().toISOString().slice(0, 10)}。\n\n` +
+    `> 知识卡片（组装视图，源：${atomsPath()} 可重建）。知识卡片 ${total} 个${total !== atoms.length ? `，判重合并后 ${atoms.length} 个` : ""}。生成于 ${new Date().toISOString().slice(0, 10)}。\n\n` +
     sections + "\n";
   if (!dryRun) {
     mkdirSync(join(CARDS_DIR, dir), { recursive: true });
     writeFileSync(cardPath, md);
-    console.log(`  ${cardPath}（${atoms.length} 原子 / ${bySlice.size} 切片）`);
+    console.log(`  ${cardPath}（${atoms.length} 知识卡片 / ${bySlice.size} 切片）`);
   }
   indexRows.push(`| [${dir}/${domain}.md](${dir}/${domain}.md) | ${atoms.length} |`);
 }

@@ -1,7 +1,7 @@
 /**
  * AutoSkill dsh 定时组装服务（M5 实现）。
  *
- * dsh 原生增值：知识原子 → 卡片（knowledge/cards/）的定时重建。
+ * dsh 原生增值：知识卡片池 atoms.jsonl → knowledge/cards/ 卡片文件的定时重建。
  *
  * 方案取舍（实测 dsh-schedule/README 确认）：
  *   dsh-schedule 投递依赖 Host Web Session controller（headless/SDK-only 不可单独挂载），
@@ -10,7 +10,7 @@
  *   Session 持久化链路，Web/headless 两种形态均可用；宿主 shutdown 时 timer 自然销毁
  *   （Cordis plugin disposal 链）。
  *
- * 触发条件（与 pi 侧 kb status 一致）：待整合原子数 > 阈值 或 到达间隔。
+ * 触发条件（与 pi 侧 kb status 一致）：待整合知识卡片数 > 阈值 或 到达间隔。
  */
 import { spawn } from "node:child_process";
 import { join, dirname } from "node:path";
@@ -29,7 +29,7 @@ export interface AssembleTimerConfig {
 	enabled?: boolean;
 	/** 检查间隔秒数（默认 3600 = 1h；最小 300） */
 	intervalSeconds?: number;
-	/** 待整合原子阈值（pending 超过才真跑 assemble；默认 10） */
+	/** 待整合知识卡片阈值（pending 超过才真跑 assemble；默认 10） */
 	pendingThreshold?: number;
 }
 
@@ -50,7 +50,7 @@ export function apply(ctx: Context, config: AssembleTimerConfig = {}) {
 			// detached spawn assemble CLI（fire-and-forget；LLM 判重走 core 独立解析链）
 			// ctx 扩展：logger 存在于 base 宿主
 			const logger = (ctx as unknown as { logger?: { info(msg: string): void } }).logger;
-			logger?.info?.(`[autoskill] 定时组装触发：待整合 ${pend.total} 原子 ≥ 阈值 ${threshold}`);
+			logger?.info?.(`[autoskill] 定时组装触发：待整合 ${pend.total} 知识卡片 ≥ 阈值 ${threshold}`);
 			const child = spawn(
 				process.execPath,
 				["--experimental-strip-types", ASSEMBLE_CLI],
@@ -68,7 +68,7 @@ export function apply(ctx: Context, config: AssembleTimerConfig = {}) {
 	};
 
 	const timer = setInterval(tick, intervalMs);
-	// 首次延迟 30s 再查一次（boot 窗口内原子池刚加载完即触发无意义）
+	// 首次延迟 30s 再查一次（boot 窗口内知识卡片池刚加载完即触发无意义）
 	const first = setTimeout(tick, 30_000);
 
 	// Cordis disposal：plugin 卸载时清 timer

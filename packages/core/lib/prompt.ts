@@ -1,6 +1,11 @@
 /**
- * 抽取 prompt 构造：注入 SLICE_CATALOG.json（44 切片合法枚举）。
- * catalog 路径相对本模块解析，CLI 与 extension 共用。
+ * 抽取 prompt 构造（存的分诊版）。
+ *
+ * 与旧版的三处关键差异：
+ *  1. 不再注入 44 切片清单——实测 41% 的知识卡片切片名是模型自造的，该枚举已失效；
+ *     改为 8 个文档类型，模型只判类型，分类/去向由 admission.ts 查表。
+ *  2. 强制 why（不存会损失什么）作为价值证据，写不出就不输出。
+ *  3. 明确承认"人给的工件"（模板/资料/客户材料）是独立价值来源，不再只盯摩擦点。
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -22,60 +27,64 @@ export interface CatalogCategory {
 
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."); // lib/ → packages/core → packages → 仓库根
 
+/** 旧版 44 切片清单：保留给 legacy 校验与展示，不再进抽取 prompt */
 export function loadCatalog(): CatalogCategory[] {
   const raw = readFileSync(join(MONOREPO_ROOT, "design", "SLICE_CATALOG.json"), "utf8");
   const parsed = JSON.parse(raw);
   return parsed.categories as CatalogCategory[];
 }
 
-/** 已知业务域提示（LLM 可自拟 kebab-case 英文名） */
+/** 已知业务主题提示（LLM 可自拟 kebab-case 英文名） */
 const DOMAIN_HINTS = `fault-diag-rl / trans-term-retrieve / pi-ops / gpu-train-ops / eval-methodology / xeno-agent / rl-training / 其他（自拟 kebab-case 英文名）`;
 
-export function buildSystemPrompt(catalog: CatalogCategory[]): string {
-  const catalogText = catalog
-    .map(
-      (c) =>
-        `### ${c.category} ${c.name}（${c.purpose}）\n` +
-        c.slices.map((s) => `- ${s.atom_type}：${s.definition}`).join("\n")
-    )
-    .join("\n\n");
+/** 8 类型清单（文档形态，不是内容碎片） */
+const TYPE_TABLE = `- sop（操作SOP）：按时间顺序的动作序列，含前置条件、失败分支、回滚。必填 step，可填 command/checkpoints/exceptions。
+- spec（口径契约）：判定标准、字段契约、硬性规则、术语定义。必须写出"排除了哪种看似合理的理解"。必填 concept_name、definition，可填 boundary、rules。
+- template（模板骨架）：可填空的交付物骨架 / 提示词模板 / 检查清单。必填 template_name、skeleton，可填 fields。
+- case（案例资料）：完整成品、真实数据、客户材料（脱敏）。必填 case_name、solution、result，可填 background/applicable_conditions。
+- postmortem（问题复盘）：现象 → 根因 → 处置。根因必须有证据支持，未验证只能写"假设：…"。必填 problem、root_cause，可填 scenario/impact/temp_fix/permanent_fix。
+- convention（环境约定）：路径、版本、命名、雷区等环境事实。必填 concept_name、definition，且必须写 expires_when。
+- index（索引线索）：东西在哪（文件位置、服务入口、ID 映射）。definition 写位置。必填 concept_name、definition，且必须写 expires_when。
+- rubric（判据标准）：评分维度、等级定义、gold 示例。必填 concept_name、definition，可填 rules。`;
 
-  return `你是知识抽取器。输入是一段 pi coding agent 的对话窗口（含 user 提问、assistant 回答、工具调用与结果，每条消息方括号内是其真实消息 id）。
-从窗口中抽取可复用的知识原子。
+export function buildSystemPrompt(): string {
+  return `你是知识库的分诊器。输入是一段 coding agent 对话窗口（每条消息方括号内是真实消息 id）。
+你的工作分两步：先把窗口里的知识拆成**最小可复用单元**，再判断每个单元该不该入库、属于哪种文档。
 
-## 5 类知识 × 44 切片清单（atom_type 唯一合法枚举）
-${catalogText}
+## 第一关：三个问题（任一答"否"就不抽，不要输出）
+1. **可再生吗**：不存它，未来能不能低成本重新得到？（模型本来就会 / 跑一次命令就有 / 代码文档里已写 → 不抽）
+2. **会改变动作吗**：未来会不会影响某个做法或判断？（只是提供背景、不影响怎么做 → 不抽）
+3. **说得出损失吗**：能不能写出一句"不存会导致什么"的具体后果？（写不出 → 不抽）
 
-## 抽取规则（严格遵守）
-1. category 只能是两位数字码 "01"~"05"（不得带类名文字，如写 "01" 而非 "01 业务认知"）；atom_type 从清单原样取中文名，按类匹配（如"根因切片"只能出现在 05 类），不得发明新切片。
-2. 每个原子按其切片的 schema_fields 填结构化字段：
-   - 01 类必填 concept_name、definition；02 类必填 step；03 类必填 template_name、skeleton；04 类必填 case_name、solution、result；05 类必填 problem、root_cause。
-   - 其余 schema_fields（如 02 的 command/checkpoints/exceptions、05 的 temp_fix/permanent_fix/improvements）有内容就填。
-3. content：简洁、可独立复用（脱离本对话也能看懂）、去会话噪音、去掉敏感信息（API key、内部地址、人名邮箱）。
-4. domain：推断业务域，取值参考：${DOMAIN_HINTS}。
-5. confidence：0-1，自评**抽取动作**的把握（不衡量知识真伪——真伪由 grounding 分级与人工 review 承担）。
-6. msg_range：[起始消息id, 结束消息id]，必须使用窗口内出现过的真实消息 id（方括号里的）；结论与其佐证（工具结果/用户陈述）应落在同一区间内。
-7. 准入判定（宁缺毋滥，详见 design/EXTRACTION_PRINCIPLES.md）：每条候选过三轴——稀缺性（不在模型参数知识里、不可随取随再生）、验证性（被现实检验过）、复现性（未来任务会再遇到），任一为零不抽。优先抽六类高价值内容：
-   - C1 人对模型的否定与修正（必须保留修正前后对照：错在哪、改成什么）
-   - C2 决策及其理由（必须含被否路径与代价，孤立结论不抽）
-   - C3 被验证过的经验性事实（命令执行/复测通过的世界反馈）
-   - C4 人的领域知识与口径定义（多轮拉扯后收敛的最终表述优先）
-   - C5 预期违背/惊讶时刻（归因已验证才可作 root_cause，未验证只能标注为假设）
-   - C6 跨会话复现的隐性上下文（环境、约定、雷区）
-   不抽：参数知识复述（通用问答）、正确但通用的建议、未验证的推测、任务流水账、闲聊/简单问答/纯环境检查。**专业感不是验证性**：推理流畅、术语准确但无证据链的内容不抽。
-8. grounding（必填）：自评证据链分级，取值只能是 G1/G2/G3/G4：
-   - G1 执行验证：结论与工具执行结果直接对应（复测通过更强）
-   - G2 工具观测：读文件/日志/指标后归纳
-   - G3 文档依据：复述项目文档/代码口径
-   - G4 纯生成：区间无任何工具结果且无用户陈述佐证——默认不输出此类原子，除非确属 C1/C2/C4（人的陈述/决策/口径）价值。
-   注意：msg_range 区间会被机械校验——区间内既无 toolResult 又无 user 消息的原子将被直接拒绝入库。
-9. 先验规则：环境/版本/机器绑定的知识**必须**把成立前提写入先验字段（01 类 boundary / 02 类 prerequisites / 04 类 applicable_conditions / 05 类 scenario）；content 去语境化改写时，环境限定词要**迁移到先验字段而不是删除**；无证据不编造万金油先验（"适用于大多数系统"式假先验比缺失更糟）。
-10. 权重与取优：优先扫描 user 消息及其紧邻上下文、否定与转折处（"不对""不是这个意思"）；同一口径多轮演化只抽最终收敛表述，中间版本丢弃；同一切片多处命中可分别输出（事后判重合并）。
-11. 输出格式：只输出一个 JSON 对象 {"atoms":[...]}，不要 markdown 代码块、不要解释文字。字段：category, atom_type, content, domain, confidence, grounding, msg_range, 以及该切片的结构化字段。atoms 为空时输出 {"atoms":[]}。`;
+注意：**不要只盯"人的纠正/决策/验证"**。人给的模板、资料、客户材料同样是高价值工件——只要它们过上面三问。
+
+## 第二关：拆解
+一段对话常含好几件事。典型：用户贴了一份客户资料 + 解释了一个口径 + 要求照着做成模板 = **三件事**，拆成三条知识卡片。
+一个单元只讲一件事；不要把三件事塞进一个 content。
+
+## 第三关：定类型（doc_type 唯一合法枚举，8 选 1）
+${TYPE_TABLE}
+
+## 硬规则
+1. why **必填**（≥8 字）：写"不存会损失什么"的具体后果。禁止"有价值""重要""可复用"这类空话。
+2. convention / index 的 expires_when **必填**（版本升级 / 路径迁移 / 系统下线等）；写不出失效条件就不要用这两个类型。
+3. spec 必须体现排他性：写出被排除的那种理解（打进 definition 或 boundary）。没有排他性的定义等于常识，不抽。
+4. postmortem 的 root_cause 必须有证据；未验证只能写"假设：…"，并降 confidence。
+5. 不要写 category——分类由系统按类型查表推出。
+6. ground：G1 执行验证 / G2 工具观测 / G3 文档依据 / G4 纯生成。**G4 默认不抽**（人的陈述、决策、口径例外）。
+7. msg_range 用窗口内真实消息 id；结论与它的证据（工具结果 / 用户原话）应落在同一区间。
+8. content 要脱离本对话也能看懂；去掉 API key、手机号、邮箱、证件号等敏感信息。若一条内容本身是客户资料（case + data），**必须彻底脱敏**，否则系统会拒收。
+9. domain 用 kebab-case 英文：${DOMAIN_HINTS}
+10. 宁缺毋滥。一条窗口抽出 0 条也是正常结果。
+
+## 输出
+只输出一个 JSON 对象，不要 markdown 代码块、不要解释：
+{"atoms":[{"doc_type":"sop","content":"...","why":"...","domain":"...","confidence":0.8,"grounding":"G1","msg_range":["id1","id2"],"expires_when":null,"atom_type":"可选细标签","step":"...","command":"..."}]}
+字段说明：doc_type / content / why / domain / confidence / grounding / msg_range 必填；expires_when 与 atom_type 可选；其余为该类型的结构化字段。atoms 为空输出 {"atoms":[]}。`;
 }
 
 export function buildUserPrompt(windowText: string): string {
-  return `以下是对话窗口内容：\n\n${windowText}\n\n请抽取知识原子，只输出 JSON。`;
+  return `以下是对话窗口内容：\n\n${windowText}\n\n请按三关分诊并抽取，只输出 JSON。`;
 }
 
 // ---------------- skill 使用反馈判定（usage 审计用） ----------------

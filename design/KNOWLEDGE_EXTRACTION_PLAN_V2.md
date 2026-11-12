@@ -136,7 +136,7 @@ promptGuidelines: ["当用户表示会话结束或一个长任务收尾时，调
 - 结构化内容填入 atom.schema.json 对应特化字段（如"动作切片"带 `step`/`command`，"根因切片"带 `root_cause`）
 - `content` 简洁、可独立复用、去会话噪音、去敏感信息（key/内部地址）
 - `sources` 必填（session_id / window_id / msg_range 用真实 message id）
-- `domain` 推断业务域；宁缺毋滥；多处命中同一切片分别输出（事后判重合并）
+- `domain` 推断业务主题；宁缺毋滥；多处命中同一切片分别输出（事后判重合并）
 
 ### 3.5 校验（三道关）
 
@@ -204,9 +204,9 @@ agent 整合方法论见 `design/INTEGRATE_GUIDE.md`（create-skill 蒸馏）。
 批量打包器遇 SKILL.md 含 `agent-maintained` 标注时跳过（防覆盖精修，--force 强制）。
 agent 精修过的 skill 成为手工资产，原子池降为事实日志+待办队列。
 
-### 5.4 域与体系（P2）
+### 5.4 主题与体系（P2）
 
-`domain` 作为原子字段 + 卡片目录前缀已成立。MAP.md / links.json / 域升级规则**暂不建**，等打包 skill 有真实需求时从卡片目录顺手生成。
+`domain` 作为原子字段 + 卡片目录前缀已成立。MAP.md / links.json / 主题升级规则**暂不建**，等打包 skill 有真实需求时从卡片目录顺手生成。
 
 ---
 

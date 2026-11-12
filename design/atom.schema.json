@@ -2,11 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://auto-skill.local/schemas/atom.schema.json",
   "title": "KnowledgeAtom",
-  "description": "知识原子: 从 pi session 抽取的最小可复用知识单元。一个原子=一条原子切片。按 category(01-05) 分支特化字段。校验: ajv/2020-12 兼容。",
-
+  "description": "知识原子: 从 pi/dsh 会话抽取的最小可复用知识单元。按 doc_type(8 类) 分诊: doc_type 决定 category(查表) 与 keep_as(去向); 旧原子无 doc_type 时按 category 分支校验。",
   "type": "object",
   "unevaluatedProperties": false,
-
   "required": [
     "atom_id",
     "category",
@@ -20,7 +18,6 @@
     "extracted_at",
     "extracted_by"
   ],
-
   "properties": {
     "atom_id": {
       "type": "string",
@@ -29,13 +26,19 @@
     },
     "category": {
       "type": "string",
-      "enum": ["01", "02", "03", "04", "05"],
+      "enum": [
+        "01",
+        "02",
+        "03",
+        "04",
+        "05"
+      ],
       "description": "知识大类: 01业务认知 02SOP 03模板 04案例 05复盘。作 discriminator 决定特化字段分支。"
     },
     "atom_type": {
       "type": "string",
       "minLength": 2,
-      "description": "切片类型(中文原样): 必须是用户5类切片清单里的合法项(如 动作切片/异常现象切片/根因切片/永久预防切片)。枚举清单见 SLICE_CATALOG.json, schema 层不硬编码, 由抽取prompt注入合法清单+后置校验。LLM 不得发明新切片。"
+      "description": "切片细标签(中文, 可选)。旧原子: 必须命中 SLICE_CATALOG 的 44 切片; 新原子(doc_type 存在时): 自由细标签, 不再校验 44 枚举。"
     },
     "content": {
       "type": "string",
@@ -45,11 +48,13 @@
     "domain": {
       "type": "string",
       "minLength": 2,
-      "description": "业务域: 如 fault-diag-rl / trans-term-retrieve / pi-ops / gpu-train-ops / eval-methodology。按可复用最小自治工作域命名, 非项目目录。"
+      "description": "业务主题: 如 fault-diag-rl / trans-term-retrieve / pi-ops / gpu-train-ops / eval-methodology。按可复用最小自治工作主题命名, 非项目目录。"
     },
     "sources": {
       "type": "array",
-      "items": { "$ref": "#/$defs/source" },
+      "items": {
+        "$ref": "#/$defs/source"
+      },
       "minItems": 1,
       "description": "溯源引用(可多源): 必填, 无source的atom拒绝入库。pi message 有 id 字段正好用。去重/演进/回溯/信任的基石。"
     },
@@ -66,31 +71,49 @@
       "description": "同原子内容版本号。演进时递增, 旧版 superseded_by 指向新版。"
     },
     "superseded_by": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^atom_[a-f0-9]{12}$",
       "default": null,
       "description": "被哪个 atom_id 取代(null=当前最新版)。演进链, 不直接覆盖旧知识, 保留决策理由。组装卡片只取 superseded_by==null 的最新版。"
     },
     "refs": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^atom_[a-f0-9]{12}$" },
+      "items": {
+        "type": "string",
+        "pattern": "^atom_[a-f0-9]{12}$"
+      },
       "default": [],
       "description": "引用的其他 atom_id (组装关系)。如 05复盘 的 permanent_fix 引用对应 02SOP 的动作切片。"
     },
     "tags": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": [],
       "description": "自由标签, 便于检索聚类(如 gpu/docker/oom/watchdog)。非分类维度, 不影响 category。"
     },
     "grounding": {
       "type": "string",
-      "enum": ["G1", "G2", "G3", "G4"],
+      "enum": [
+        "G1",
+        "G2",
+        "G3",
+        "G4"
+      ],
       "description": "证据链分级(见 design/EXTRACTION_PRINCIPLES.md §五): G1执行验证(结论与工具执行结果直接对应) G2工具观测(读文件/日志/指标后归纳) G3文档依据(复述项目文档/代码口径) G4纯生成(无接地)。G4 默认拒绝入池; 抽取侧机械校验: msg_range 区间内既无 toolResult 又无 user 消息即拒。confidence 只衡量抽取动作把握, 知识真伪由本字段与 review 承担。"
     },
     "status": {
       "type": "string",
-      "enum": ["draft", "reviewed", "published", "deprecated"],
+      "enum": [
+        "draft",
+        "reviewed",
+        "published",
+        "deprecated"
+      ],
       "default": "draft",
       "description": "生命周期: draft(待审) → reviewed(已审) → published(入正式池) → deprecated(废弃)。compaction抢救直接 published+confidence0.7, 其他默认 draft。"
     },
@@ -114,108 +137,365 @@
     "review_notes": {
       "type": "string",
       "description": "review 时人工备注(可选): 为何通过/为何降级/修正了什么。"
+    },
+    "doc_type": {
+      "type": "string",
+      "enum": [
+        "sop",
+        "spec",
+        "template",
+        "case",
+        "postmortem",
+        "convention",
+        "index",
+        "rubric"
+      ],
+      "description": "文档类型(8 选 1)。sop 操作流程 / spec 口径契约 / template 模板骨架 / case 案例资料 / postmortem 问题复盘 / convention 环境约定 / index 索引线索 / rubric 判据标准。存在时 category 由它查表推出，atom_type 降级为可选细标签。"
+    },
+    "keep_as": {
+      "type": "string",
+      "enum": [
+        "instruction",
+        "reference",
+        "data"
+      ],
+      "description": "去向: instruction 进技能正文 / reference 进技能依据区 / data 进资料层(不进正文)。由 doc_type 查表推导，仅 case 允许在 reference 与 data 间选择。"
+    },
+    "why": {
+      "type": "string",
+      "minLength": 8,
+      "description": "价值理由: 不存会损失什么(具体后果)。写不出具体后果的原子不入库。"
+    },
+    "expires_when": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "失效条件(版本升级/路径迁移/系统下线等)。convention 与 index 必填; 其余可 null。"
+    },
+    "relation": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "new",
+            "extends",
+            "supersedes",
+            "duplicate"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "description": "目标 atom_id"
+        }
+      },
+      "description": "与已有原子的关系(v2 关系判定落地前恒为 new)。"
     }
   },
-
   "allOf": [
     {
-      "if": { "properties": { "category": { "const": "01" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "01"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "concept_name": { "type": "string", "description": "概念/口径名称(如 reward设计/trajectory/GRPO)。" },
-          "definition": { "type": "string", "description": "释义/口径定义: 这个概念是什么、怎么界定。" },
-          "boundary": { "type": "string", "description": "适用边界: 什么时候适用、什么时候不适用。" },
-          "rules": { "type": "array", "items": { "type": "string" }, "description": "相关规则/约束列表。" }
+          "concept_name": {
+            "type": "string",
+            "description": "概念/口径名称(如 reward设计/trajectory/GRPO)。"
+          },
+          "definition": {
+            "type": "string",
+            "description": "释义/口径定义: 这个概念是什么、怎么界定。"
+          },
+          "boundary": {
+            "type": "string",
+            "description": "适用边界: 什么时候适用、什么时候不适用。"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "相关规则/约束列表。"
+          }
         },
-        "required": ["concept_name", "definition"]
+        "required": [
+          "concept_name",
+          "definition"
+        ]
       }
     },
     {
-      "if": { "properties": { "category": { "const": "02" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "02"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "step": { "type": "string", "description": "步骤描述/动作说明(如 查GPU占用 → 释放容器 → 拉起训练)。" },
-          "step_order": { "type": "integer", "minimum": 1, "description": "同卡片内步骤序号, 便于组装成流程清单。" },
-          "prerequisites": { "type": "array", "items": { "type": "string" }, "description": "前置条件(如 需root/需在训练机执行)。" },
-          "inputs": { "type": "array", "items": { "type": "string" }, "description": "输入(参数/文件/状态)。" },
-          "outputs": { "type": "array", "items": { "type": "string" }, "description": "输出物(日志/文件/状态变更)。" },
-          "checkpoints": { "type": "array", "items": { "type": "string" }, "description": "核查点(如 ps -p <pid> -o etime 验存活)。" },
-          "exceptions": { "type": "array", "items": { "type": "string" }, "description": "异常处置(如 显存未释放则docker stop)。" },
-          "command": { "type": ["string", "null"], "description": "具体命令(可执行片段), 无则为null。" }
+          "step": {
+            "type": "string",
+            "description": "步骤描述/动作说明(如 查GPU占用 → 释放容器 → 拉起训练)。"
+          },
+          "step_order": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "同卡片内步骤序号, 便于组装成流程清单。"
+          },
+          "prerequisites": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "前置条件(如 需root/需在训练机执行)。"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "输入(参数/文件/状态)。"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "输出物(日志/文件/状态变更)。"
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "核查点(如 ps -p <pid> -o etime 验存活)。"
+          },
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "异常处置(如 显存未释放则docker stop)。"
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "具体命令(可执行片段), 无则为null。"
+          }
         },
-        "required": ["step"]
+        "required": [
+          "step"
+        ]
       }
     },
     {
-      "if": { "properties": { "category": { "const": "03" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "03"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "template_name": { "type": "string", "description": "模板名(如 评测报告骨架/事件记录模板)。" },
-          "purpose": { "type": "string", "description": "模板用途/何时用。" },
-          "skeleton": { "type": "string", "description": "空白骨架(markdown), 含模块标题+字段占位+格式说明。可直接填充复用。" },
+          "template_name": {
+            "type": "string",
+            "description": "模板名(如 评测报告骨架/事件记录模板)。"
+          },
+          "purpose": {
+            "type": "string",
+            "description": "模板用途/何时用。"
+          },
+          "skeleton": {
+            "type": "string",
+            "description": "空白骨架(markdown), 含模块标题+字段占位+格式说明。可直接填充复用。"
+          },
           "fields": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "name": { "type": "string" },
-                "type": { "type": "string", "description": "字段类型(string/number/bool/array/object/enum)。" },
-                "required": { "type": "boolean" },
-                "description": { "type": "string" },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "字段类型(string/number/bool/array/object/enum)。"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string"
+                },
                 "example": {}
               },
-              "required": ["name", "type"]
+              "required": [
+                "name",
+                "type"
+              ]
             },
             "description": "字段定义清单(结构化), 与 skeleton 互补。"
           }
         },
-        "required": ["template_name", "skeleton"]
+        "required": [
+          "template_name",
+          "skeleton"
+        ]
       }
     },
     {
-      "if": { "properties": { "category": { "const": "04" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "04"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "case_name": { "type": "string", "description": "案例名(如 01a0aef7 RL训练GPU抢占处置)。" },
-          "background": { "type": "string", "description": "基础信息/背景: 何人何事何环境。" },
-          "solution": { "type": "string", "description": "方案概述: 怎么解决的。" },
-          "process": { "type": "array", "items": { "type": "string" }, "description": "解决过程步骤序列。" },
-          "result": { "type": "string", "description": "结果/效果: 最终状态。" },
-          "highlights": { "type": "array", "items": { "type": "string" }, "description": "亮点/可借鉴之处。" },
-          "limitations": { "type": "array", "items": { "type": "string" }, "description": "局限/不适用条件。" },
-          "applicable_conditions": { "type": "array", "items": { "type": "string" }, "description": "适用条件(何时可复用此案例)。" }
+          "case_name": {
+            "type": "string",
+            "description": "案例名(如 01a0aef7 RL训练GPU抢占处置)。"
+          },
+          "background": {
+            "type": "string",
+            "description": "基础信息/背景: 何人何事何环境。"
+          },
+          "solution": {
+            "type": "string",
+            "description": "方案概述: 怎么解决的。"
+          },
+          "process": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "解决过程步骤序列。"
+          },
+          "result": {
+            "type": "string",
+            "description": "结果/效果: 最终状态。"
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "亮点/可借鉴之处。"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "局限/不适用条件。"
+          },
+          "applicable_conditions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "适用条件(何时可复用此案例)。"
+          }
         },
-        "required": ["case_name", "solution", "result"]
+        "required": [
+          "case_name",
+          "solution"
+        ]
       }
     },
     {
-      "if": { "properties": { "category": { "const": "05" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "05"
+          }
+        }
+      },
       "then": {
         "properties": {
-          "problem": { "type": "string", "description": "问题/故障描述(如 RL训练2分钟OOM)。" },
-          "scenario": { "type": "string", "description": "发生场景/触发条件。" },
-          "impact": { "type": "string", "description": "影响范围/后果。" },
-          "root_cause": { "type": "string", "description": "根因(如 GPU资源多用户争用, 非配置问题)。" },
-          "temp_fix": { "type": ["string", "null"], "description": "临时对策(如 手动释放GPU重启), 可null。" },
-          "permanent_fix": { "type": ["string", "null"], "description": "永久预防(如 看门狗自动拉起+错峰), 可null。" },
-          "improvements": { "type": "array", "items": { "type": "string" }, "description": "改进项清单(可跨域, 如 agent不应sleep等待)。" }
+          "problem": {
+            "type": "string",
+            "description": "问题/故障描述(如 RL训练2分钟OOM)。"
+          },
+          "scenario": {
+            "type": "string",
+            "description": "发生场景/触发条件。"
+          },
+          "impact": {
+            "type": "string",
+            "description": "影响范围/后果。"
+          },
+          "root_cause": {
+            "type": "string",
+            "description": "根因(如 GPU资源多用户争用, 非配置问题)。"
+          },
+          "temp_fix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "临时对策(如 手动释放GPU重启), 可null。"
+          },
+          "permanent_fix": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "永久预防(如 看门狗自动拉起+错峰), 可null。"
+          },
+          "improvements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "改进项清单(可跨主题, 如 agent不应sleep等待)。"
+          }
         },
-        "required": ["problem", "root_cause"]
+        "required": [
+          "problem",
+          "root_cause"
+        ]
       }
     }
   ],
-
   "$defs": {
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["session_id", "window_id", "msg_range"],
+      "required": [
+        "session_id",
+        "window_id",
+        "msg_range"
+      ],
       "properties": {
-        "session_id": { "type": "string", "description": "pi session 文件名(去.jsonl, 如 01a0aef7)。" },
-        "window_id": { "type": "string", "pattern": "^win_[a-f0-9]+_\\d+$", "description": "窗口ID: win_<session_id短>_<序号>。user msg对齐切分的窗口标识。" },
+        "session_id": {
+          "type": "string",
+          "description": "pi session 文件名(去.jsonl, 如 01a0aef7)。"
+        },
+        "window_id": {
+          "type": "string",
+          "pattern": "^(win_[a-f0-9]+_\\d+|decl_[a-z0-9]+_\\d+)$",
+          "description": "窗口ID: win_<session短id>_<序号>(抽取窗口) 或 decl_<session短id>_<序号>(agent 主动声明来源)。"
+        },
         "msg_range": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "minItems": 2,
           "maxItems": 2,
           "description": "消息ID范围 [startId, endId](如 [m00340, m00390])。pi message 的 id 字段。尽量精确到子范围便于回溯。"
@@ -226,15 +506,39 @@
       "type": "object",
       "description": "LLM抽取一次窗口的输出包装。抽取prompt要求只输出此结构。",
       "additionalProperties": false,
-      "required": ["window_id", "extracted_at", "extracted_by", "atoms"],
+      "required": [
+        "window_id",
+        "extracted_at",
+        "extracted_by",
+        "atoms"
+      ],
       "properties": {
-        "window_id": { "type": "string" },
-        "extracted_at": { "type": "string", "format": "date-time" },
-        "extracted_by": { "type": "string", "enum": ["llm-haiku", "llm-flash", "llm-gemini-flash", "offline-pipeline", "compaction-rescue"] },
-        "model": { "type": "string", "description": "实际模型名(如 claude-haiku-4 / gemini-2.5-flash)。" },
+        "window_id": {
+          "type": "string"
+        },
+        "extracted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "extracted_by": {
+          "type": "string",
+          "enum": [
+            "llm-haiku",
+            "llm-flash",
+            "llm-gemini-flash",
+            "offline-pipeline",
+            "compaction-rescue"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "实际模型名(如 claude-haiku-4 / gemini-2.5-flash)。"
+        },
         "atoms": {
           "type": "array",
-          "items": { "$ref": "#" },
+          "items": {
+            "$ref": "#"
+          },
           "description": "本窗口抽到的原子数组(可空)。宁缺毋滥。"
         }
       }

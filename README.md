@@ -1,9 +1,9 @@
 # AutoSkill
 
-把 pi 对话中**正在流失的经验**沉淀为可路由的 skill：对话记录 → 知识原子 → 卡片 → skill。安装一次 extension，之后全自动。
+把 pi 对话中**正在流失的经验**沉淀为可路由的 skill：对话记录 → 知识卡片 → 整合 → skill。安装一次 extension，之后全自动。
 
 ```
-对话(五入口) ──抽取──▶ 原子池 atoms.jsonl ──整合──▶ skills/*.md ──体检──▶ 持续优化
+对话(五入口) ──抽取──▶ 知识卡片池 atoms.jsonl ──整合──▶ skills/*.md ──体检──▶ 持续优化
                        （待办队列）      （agent 提案队列）     （darwin-skill）
 ```
 
@@ -21,34 +21,43 @@
 
 ## 抽取什么（准入标准）
 
-三条判定轴，**任一为零则不入池**（详见 [EXTRACTION_PRINCIPLES.md](design/EXTRACTION_PRINCIPLES.md)）：
+**三问定生死**，任一答"否"不入池（详见 [STORE_PLAN.md](design/STORE_PLAN.md)）：
 
-| 轴 | 定义 | 反例 |
+| 问题 | 判据 | 反例 |
 |---|---|---|
-| **稀缺性** | 不在模型参数知识里 | "GRPO 是什么"的回答 |
-| **验证性** | 被现实验证过（执行结果/用户确认） | 听起来专业但未检验的推测 |
-| **复现性** | 未来任务会再次遇到 | 一次性事务 |
+| **可再生吗** | 不存它，未来能否低成本重新得到 | 模型本来就会的通用问答 |
+| **会改变动作吗** | 未来会不会影响某个做法或判断 | 只提供背景、不影响怎么做 |
+| **说得出损失吗** | 能写出一句"不存会导致什么" | 写不出具体后果 |
 
-价值来源优先级：**人→模型（否定/修正/决策理由）＞ 世界→模型（预期违背）＞ 文档映射**。对话的高价值几乎全部产生于人机摩擦点与现实检验点。
+**8 个文档类型**（模型只判类型，分类与去向由查表推导）：
 
-产出形状：5 类知识 × 44 切片（[SLICE_CATALOG.json](design/SLICE_CATALOG.json)）
+| 类型 | 回答什么 | 去向 |
+|---|---|---|
+| `sop` | 按什么顺序做 | 技能正文 |
+| `spec` | 什么算对 / 必须遵守（须有排他性） | 技能正文 |
+| `template` | 填空就能用 | 技能正文 |
+| `case` | 照着它做（含客户资料） | 依据区或资料层 |
+| `postmortem` | 上次为什么炸（根因需证据） | 技能正文 + 依据 |
+| `convention` | 这环境的规矩（须写失效条件） | 技能正文 |
+| `index` | 东西在哪（须写失效条件） | **资料层** |
+| `rubric` | 怎么打分 | 技能正文 + 依据 |
 
-```
-01 业务认知   02 操作SOP   03 模板库   04 案例样例   05 问题复盘
-```
+三条去向物理分离：**instruction**（技能正文）/ **reference**（技能依据区）/ **data**（资料层，不进正文）。只有 instruction 会进入组装与打包。
+
+> 旧的三轴与 44 切片清单保留为历史设计（[EXTRACTION_PRINCIPLES.md](design/EXTRACTION_PRINCIPLES.md)、[SLICE_CATALOG.json](design/SLICE_CATALOG.json)）；新知识卡片按 8 类型分诊。
 
 ## 如何抽取
 
 1. 会话按 **100 条消息 / 80k 字符**切窗，序列化后交 LLM（流式调用，思考 token 不限预算）
-2. 单窗产出原子 JSON 数组，schema 校验 + `atom_type` 必须命中切片清单
-3. `atom_id = sha1(category+domain+content)` 幂等，重复内容不重入库
+2. 单窗产出"最小单元"数组：`doc_type` + `why` + 落地证据；准入规则（来源/接地/敏感/价值理由）先筛，再按类型校验必填字段
+3. `atom_id = sha1(content+sources)` 幂等，重复内容不重入库
 4. LLM 配置**零额外配置**（见下文"配置"节）
 
-## 原子 → skill（整合）
+## 知识卡片 → skill（整合）
 
 **数据目录（重要）**：所有运行时知识数据（`atoms.jsonl`、`cards/`、`intake/`、`usage.jsonl`、`skill-state.json` 等）存放在 `~/.pi/agent/data/autoskill/knowledge/`，**不在包 checkout 内**——pi update 对 git 包执行 `git reset --hard` + `git clean -fdx`（`-x` 连 gitignored 文件一起删），包内数据会被无条件清空。`KB_DIR` 环境变量可覆盖此路径。迁移旧数据：把旧 `knowledge/` 内容拷入新目录即可。
 
-- **增量整合（日常主路径）**：原子即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到数据目录的 `intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→原子退队列下轮重做——无锁并发，冲突只重做不丢失）
+- **增量整合（日常主路径）**：知识卡片即待办队列。pi 会话注入提示，agent 按 [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) 写提案到数据目录的 `intake/`；应用器 session_start 时串行消费（`base_skill_sha` 失配→丢弃→知识卡片退队列下轮重做——无锁并发，冲突只重做不丢失）
 - **批量工具**：积压 >25 条或 bootstrap 时跑 `assemble.ts`（LLM 判重合并 → 5 类确定性组卡）+ `package-skill.ts`（生成路由 description，<15k 内联单文件否则拆 references）。agent 精修过的 skill 标注 `agent-maintained` 保护，批量不覆盖
 - **双层输出**：抽取层纯经验（三轴守门）；SKILL.md 正文是经验 × 世界知识转化的操作指令（受最小绑定纪律约束，[EXTRACTION_PRINCIPLES.md §九](design/EXTRACTION_PRINCIPLES.md)），references/ 保留原始切片保真可溯源
 
@@ -126,12 +135,12 @@ node --experimental-strip-types packages/core/scripts/package-skill.ts --all
 
 ```
 knowledge/
-  atoms.jsonl          # 原子池（唯一事实源）
+  atoms.jsonl          # 知识卡片池（唯一事实源，文件名保留旧叫法）
   usage.jsonl          # 使用审计日志（loaded/accepted/rejected/edited）
   skill-state.json     # 整合账本 + darwin 记账
   intake/              # agent 提案队列
   cards/               # 组装的知识卡片
-packages/core/        # 抽取/整合/打包引擎（零宿主依赖，数据目录由 HostContext 注入）
+packages/core/        # 抽取/分诊/整合/打包引擎（零宿主依赖，数据目录由 HostContext 注入）
 packages/adapter-pi/  # pi 宿主适配层（extensions 入口 + skills 约定）
 packages/adapter-dsh/ # dsh 宿主适配层（DeepSeek Harness bundle，M1 起步）
 design/               # 原理文档（原则/切片清单/schema/整合指引/DSH_PLUGIN_PLAN）

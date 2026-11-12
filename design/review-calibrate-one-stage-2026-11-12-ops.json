@@ -1,0 +1,606 @@
+{
+  "ts": "2026-11-12T06:21:00.479Z",
+  "session": "01a16658-901e-7214-b80c-54b77d733d87",
+  "stage": "one-stage",
+  "model": "glm-5.3-flash",
+  "batchChars": 12000,
+  "coverage": {
+    "total": 618,
+    "covered": 0,
+    "unreviewed": 618
+  },
+  "batches": {
+    "used": 20,
+    "total": 20
+  },
+  "tokens": {
+    "in": 171658,
+    "out": 307140,
+    "total": 478798
+  },
+  "elapsedMs": 1853828,
+  "atoms": 54,
+  "rejected": 2,
+  "rejectReasons": {
+    "无接地（区间内既无 user 消息也无工具结果，GN 纯生成）": 2
+  },
+  "rejectSamples": {
+    "无接地（区间内既无 user 消息也无工具结果，GN 纯生成）": "无接地（区间内既无 user 消息也无工具结果，G4 纯生成）"
+  },
+  "dropped": 62,
+  "byType": {
+    "index": 8,
+    "convention": 7,
+    "postmortem": 15,
+    "case": 2,
+    "spec": 12,
+    "rubric": 3,
+    "sop": 7
+  },
+  "compress": {
+    "ratio": 0.431,
+    "fallback": 1,
+    "noGain": 370
+  },
+  "oneStage": {
+    "noValueBatches": 0,
+    "retriedBatches": 0,
+    "needContext": 3,
+    "dropRows": 62,
+    "autoDropped": 0,
+    "unaccounted": 166,
+    "recovered": 14,
+    "quoteUnverified": 7,
+    "orphanedByReject": 0
+  },
+  "drops": {
+    "total": 62,
+    "byReason": {
+      "可再生": 20,
+      "已有重复": 9,
+      "P3自说自话": 4,
+      "纯流水账": 28,
+      "无动作改变": 1
+    },
+    "byAxis": {
+      "稀缺性=0": 18,
+      "—": 17,
+      "验证性=0": 4,
+      "复现性=0": 23
+    }
+  },
+  "copyRatio": {
+    "n": 54,
+    "p50": 0.0625,
+    "p90": 0.3333333333333333,
+    "max": 0.45714285714285713,
+    "threshold": 0.6
+  },
+  "probes": [
+    {
+      "probe": "排故步骤 -> 可能的根因",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "不要通过代码判断",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "全环完整的差别",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "过滤刚过线的案例",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "复判用svc",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "全量重判是在已经过滤过的结果上",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "717是采样检测的数量",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "执行方案B",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "仅出方案，不要实际修改数据",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "3827个结构化内容中，直接复用",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "暂时关闭裁判模块",
+      "messages": 1,
+      "hit": false,
+      "hitMessages": 0
+    },
+    {
+      "probe": "根因/排故过程为空",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "机型目录归一，小批量试点",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    },
+    {
+      "probe": "人工抽检 50 条再执行重命名",
+      "messages": 2,
+      "hit": true,
+      "hitMessages": 2
+    },
+    {
+      "probe": "不要sleep",
+      "messages": 1,
+      "hit": true,
+      "hitMessages": 1
+    }
+  ],
+  "stopped": null,
+  "cards": [
+    {
+      "id": "atom_a80f53c4acbd",
+      "type": "index",
+      "domain": "repair-case-data",
+      "content": "- 根目录 /Users/chenmingyao/Documents/repair-case/<knowledge_id>/，每篇 .md 配同名 .meta.json，meta type 均为「故障案例」。\n- 海外(696652792139486)：2061 篇，内联式，章节序「故障现象描述→排故思路→排故过程→故障原因:→预防措施」，标题即现象，页数中位 5。\n- 中国-2(723923842885331)：11661 篇，表格式 PDF 重排，章节「故障现象/故障诊断分析/故障解除/预防措施及对策」，章节标题与正文易错位，页数中位 2。\n- 中国-1(744804956993484)：11707 篇，表格式（基础信息+故障部位①②③+诊断步骤+排故步骤），页数中位 2。\n- 结论：三库版式互不兼容，结构化统计须分库各用一套章节词表，一套正则套三库会失真。",
+      "quote": "== 海外 (696652792139486) n=2061",
+      "value": "P1"
+    },
+    {
+      "id": "atom_0449ed1aad00",
+      "type": "convention",
+      "domain": "repair-case-data",
+      "content": "- utf-8 直读报错（逐字）：UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd0 in position 0: invalid continuation byte。\n- 改 encoding='gbk' 后读取成功；访问 r['字段完整度'] 报 KeyError: '字段完整度'，缺失信息在「字段缺失」列。\n- 该 CSV 是 2020 篇精选集：海外 66 / 中国-2 1645 / 中国-1 309，不是全量 25,429 篇。",
+      "quote": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd0 in position 0: invalid continuation byte",
+      "value": "P1"
+    },
+    {
+      "id": "atom_6c0863fca4d1",
+      "type": "postmortem",
+      "domain": "repair-case-data",
+      "content": "- 检出启发式（实测命中 118 篇）：g.endswith(('白旭日','工程师')) or re.search(r'-\\S{2,3}$',g) and len(g)<12。\n- 118 篇疑似污染清单可用同一启发式复现，待人工复核。\n- 当时提出的修复方向：把标题尾段从根因回退链中剔除（未实施）。",
+      "quote": "疑似标题尾部污染的根因: 118",
+      "value": "P1"
+    },
+    {
+      "id": "atom_95e3f4be6cf7",
+      "type": "case",
+      "domain": "repair-case-data",
+      "content": "- 这些数字是后续清洗/打分的 baseline。\n- 照片占位结论：原文图片已全部丢失，质量分析与入库都不能依赖原图。\n- 中国-2 章节命中率最低(18%)，与其「表格式 PDF 重排、标题正文错位」版式一致。",
+      "quote": "海外: n=66 中位内容长度=377.0 p10=170 p90=1511",
+      "value": "P1"
+    },
+    {
+      "id": "atom_d90e6a55f0c7",
+      "type": "index",
+      "domain": "expert-book-pipeline",
+      "content": "- 实测状态分布：rendered 1992 / quarantined 27 / extracted 1。\n- 样例行 title 形如 28-Excavator-挖掘机-SY155W-….pdf，含 model=SY155W、symptom=冒黑烟无力感、attempts=1。\n- 对 repair-case 原始库做语义抽检时，这是现成 judge 管线的状态入口。",
+      "quote": "audit.jsonl states: {'rendered': 1992, 'quarantined': 27, 'extracted': 1}",
+      "value": "P1"
+    },
+    {
+      "id": "atom_8a05326ff357",
+      "type": "spec",
+      "domain": "repair-case-quality",
+      "content": "- 用户对 repair-case 案例质量定的口径：看「机型/故障现象 → 工况 → 排故步骤 → 可能的根因」这条链路是否完整（msg 4d65ac26），而非上一轮的泛化质量评估。\n- 排除了哪种理解：排除了「文风/排版好坏」式写作质量评估，也排除了单字段有无检查——判定单位是因果链闭合度，且工况被明确列为链路一环。\n- 该口径直接催生了 chain_audit.py 的 S1~S5 五环打分设计；后续审计证明工况恰是最大缺口。",
+      "quote": "我主要是希望看看从 机型/故障现象 -> 工况 -> 排故步骤 -> 可能的根因 这个链路是否完整",
+      "value": "P0"
+    },
+    {
+      "id": "atom_27ef03c112c7",
+      "type": "case",
+      "domain": "repair-case-audit",
+      "content": "- 范围：三库全量 25,429 篇逐篇规则打分。产物：/Users/chenmingyao/Documents/repair-case/chain_audit.py、chain_audit/chain_scores.csv、chain_audit/by_model.csv。\n- 主链完整率（标准口径）：中国-1 24.1% ＞ 海外 8.9% ≈ 中国-2 8.2%，全体 15.6%；全环完整率 12.7%/6.2%/4.1%。\n- 工况环全场最低（均分 0.61~0.74）→ 工况是全书性缺口，不是个别案例问题；expert-book「什么工况触发」栏位要么靠 fault-mechanism 机理标注补，要么降级为可选。\n- 分环角色：根因均分中国-1 1.12 vs 海外 0.37/中国-2 0.39；现象均分海外 1.72 最高 → 中国-1 当根因库、海外/中国-2 当现象库，合并互补拼链。\n- 可用池：链路全通 2,096 篇 + 「步骤弱但根因清楚」修复潜力约 2,000 篇，与此前精选 2,020 篇规模吻合（说明当时候选筛选实际起了这个作用）。\n- 链路完整率为 0 的机型：搅拌车 HBG6010C、STG190C-8S、SYL956 装载机、STC250T5 汽车。\n- 可信度：S5 漏检抽检仅 6 例且均为真空根因（ae0512db）。",
+      "quote": "搅拌车 HBG6010C(0%)、STG190C-8S(0%)、SYL956 装载机(0%)、STC250T5 汽车(0%)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_4055cbef5b40",
+      "type": "rubric",
+      "domain": "repair-case-audit",
+      "content": "- 方法：纯规则（关键词 + 章节定位 + 正则计数），无 LLM，实现在 /Users/chenmingyao/Documents/repair-case/chain_audit.py。\n- 五环各 0/1/2：S1 现象锚定（有章节头且正文≥10字=2，无章节回退用标题=1）；S2 工况（关键词/数字信号）；S3 排故步骤（动作词表计数）；S4 收敛/验证；S5 根因（因果词代理）。\n- 聚合：主链完整 = S1≥1 且 S3≥2 且 S5≥1；全环完整 = 主链 + S2≥1 + S4≥1。\n- 阈值敏感性（实测）：松（现象+有步骤+有根因）全体 26.2% / 标准 15.6% / 严（三环全满分）6.4%；「中国-1 ≫ 海外≈中国-2」方向在三种口径下不变，绝对值在 6%~26% 浮动——引用完整率数字必须带口径。\n- 已知盲区：S2 关键词命中≠工况真写清（「工作小时 2941」可能只是表格数字）；S3 会把「检查A→更换A」两步模板案误判为完整（有结构无推理）；口语化叙述不命中词表会漏检；S5「怀疑是X」与「判定为X有证据」同分。\n- 校准方案（当时提出、未执行）：从链路全通 2,096 篇抽 50 篇 LLM judge 验真通率（估 S3 误报率），从步骤弱抽 50 篇验漏报率；或只对边界分（total=6~7）跑 LLM 复核。",
+      "quote": "**主链完整** = S1≥1 且 S3≥2 且 S5≥1（现象、过程、根因三环）",
+      "value": "P1"
+    },
+    {
+      "id": "atom_15a83ddeed6b",
+      "type": "postmortem",
+      "domain": "data-quality-audit",
+      "content": "现象：n=60 分层抽样下，关键词+正则规则法主链完整率仅 15.6%，LLM judge（svc/deepseek-v4-flash，temperature=0.1）71.7%，差距悬殊。\n根因（规则法三类系统性漏检，逐条读原文仲裁证实）：①动作词表仅中文→英文案例全漏，海外库被系统性误伤；②编号正则不匹配\"1 xxx\"空格格式；③根因埋在正文长句、不命中因果词表。反向虚高：\"规则7>LLM4\"案例实为培训资料拼贴文，结构上像完整链路，规则照样给高分。\n决策：用户拍板弃规则打分，写 skill 改用 LLM 逐条裁判；skill 化后同模型复测 3 条五环逐分一致（temperature=0.1）。\n教训：关键词正则只能承担初筛，不能作为数据质量结论；LLM judge 口径采用 0/1/2 分档＋证据逐字摘录＋分不清取低档，实测比复杂评分表可靠。",
+      "quote": "不要通过代码判断，写一个skill，通过llm judge一条一条判断是否可行",
+      "value": "P0"
+    },
+    {
+      "id": "atom_3f97a158f8b6",
+      "type": "index",
+      "domain": "repair-case",
+      "content": "位置：~/.pi/agent/skills/case-chain-judge/。SKILL.md＝五环判分口径（C1现象/C2工况/C3步骤/C4收敛/C5根因，各 0/1/2）＋实测校准基准；scripts/judge-chain.ts＝编排脚本，判分全由 LLM 完成，代码只管分页/并发/断点续跑。\n用法（当时验证可用）：cd ~/.pi/agent/skills/case-chain-judge && node --experimental-strip-types scripts/judge-chain.ts --sample 60（分层抽样）｜--doc <kb_id>/<doc_id>.md（单条）｜--list list.txt｜--kb <kb_id> --limit N。\n输出：/Users/chenmingyao/Documents/repair-case/chain_audit_llm/{results.csv,summary.md,state.jsonl}，state.jsonl 支持断点续跑。\n模型 svc/deepseek-v4-flash，provider 配置读 ~/.pi/agent/models.json 的 providers.rootcloud（baseUrl http://api.ai.rootcloud.info/v1）。",
+      "quote": "node --experimental-strip-types scripts/judge-chain.ts --sample 60      # 分层抽样",
+      "value": "P1"
+    },
+    {
+      "id": "atom_b114c5527b45",
+      "type": "postmortem",
+      "domain": "llm-api",
+      "content": "坑 1：judge-chain.ts 首跑无任何输出且 exit=0——文件末尾缺少 main() 调用，Node 静默退出；unhandledRejection 钩子与 execSync 捕 stderr 都查不出（根本没有异步错误），最后检查文件尾部入口才定位。\n坑 2：单条裁判跑完但 state.jsonl 无记录、content 为空——svc/deepseek-v4-flash 是 reasoning 模型，max_tokens=1600 时思考 token 吞掉输出预算导致 content 为空，且重试条件未覆盖空 content。修复：max_tokens 提到 8000＋空 content 纳入重试；修复后单条判分 2/2/2/2/2、60 条抽样 fail=0。\n附带验证：rootcloud 端点（http://api.ai.rootcloud.info/v1）对该模型支持 response_format json_schema strict:true，curl 实测 finish=stop、content 正常返回。",
+      "quote": "两个 bug：`空 content` 未纳入重试（reasoning 模型思考 token 超预算导致 content 为空），且 max_tokens=1600 对带推理的裁判不够",
+      "value": "P1"
+    },
+    {
+      "id": "atom_62eb9dbb0af6",
+      "type": "index",
+      "domain": "repair-case-audit",
+      "content": "- 位置：/Users/chenmingyao/Documents/repair-case/chain_audit_llm/chain_full/，按库分子目录 海外/ 中国-1/ 中国-2/，每案例 xxx.md + xxx.meta.json 原样拷贝；索引 chain_full/index.csv（path/kb/model/title/五环分/总分）\n- 收录口径：主链完整（C1≥1 且 C3≥1 且 C5≥1）\n- 刷新时机：裁判收尾 summarize() 自动同步；跑批中途目录会滞后（实测 state 已 1390 条时目录仍停在抽样期的 44 条），手动 `node --experimental-strip-types scripts/judge-chain.ts --export` 从 state.jsonl 幂等刷新，不重跑裁判\n- 扩量：--kb <kb_id> --limit N 扩大判定范围，state 断点续跑，新判完条目自动汇入同一目录与索引",
+      "quote": "导出只挂在收尾汇总上，刚才已手动 `--export` 刷新到最新",
+      "value": "P0"
+    },
+    {
+      "id": "atom_eab09d11fb80",
+      "type": "spec",
+      "domain": "repair-case-audit",
+      "content": "- 五环：C1 现象 / C2 工况 / C3 排故步骤 / C4 排除收敛 / C5 根因，各 0/1/2 分\n- 主链完整 = C1≥1 且 C3≥1 且 C5≥1：「什么毛病→查了什么→什么原因」三节主干闭环，C2、C4 不要求\n- 全环完整 = 五环全部 ≥1：主链之外还要求 C2 工况信息（工作小时/热机冷机/负荷等）与 C4 排除收敛证据（如「测压力 320bar 正常，排除主泵」，而非只写「检查了X」无结果好坏）\n- 排除的理解：主链完整 ≠ 全环完整。「检查X→更换X→恢复正常」式案例（有现象有根因、无工况无排除过程）属主链通、全环不通\n- 用途分层：主链完整 → expert-book 基础素材池；全环完整 → 可直接支撑「机型/现象→工况→步骤→根因」教学链路的优质池；chain_full 目录按主链口径收录\n- 实测（n>6000）：全环 ~50-51% 显著低于主链 ~71-73%，缺口主要在 C2 工况",
+      "quote": "| **主链完整** | C1≥1 **且** C3≥1 **且** C5≥1 | 「现象 → 查了什么 → 结论是什么」三节主干闭环，C2、C4 不要求 |",
+      "value": "P2"
+    },
+    {
+      "id": "atom_ac80fa6db34f",
+      "type": "convention",
+      "domain": "repair-case-audit",
+      "content": "- 三库全量 25,429 篇 = 海外 2,061 + 中国-1 11,707 + 中国-2 11,661\n- 启动方式：`nohup env JUDGE_CONCURRENCY=16 node --experimental-strip-types scripts/judge-chain.ts > chain_audit_llm/fullrun.log 2>&1 &`；state.jsonl 断点续跑，中断后原命令重跑即可，已判条目不会重花钱\n- 实测吞吐：并发 16 下 ~23-24 条/分钟，零失败；单条 ~5k tokens（含 reasoning）\n- 全量成本估算：~1.1-1.2 亿 tokens、~17 小时；走 rootcloud 内部网关，无现金成本但占推理配额，额度紧张可 kill 改跑折中方案\n- 中途趋势稳定：5.5% / 8.5% / 23.6% 三个时点主链完整率 70→71→73%、全环 50→50→51%，三库特征无漂移（中国-2 主链 63-64%，明显低于海外 80-83% 与中国-1 82%）",
+      "quote": "三个库全量 = 25,429 篇（海外 2,061 + 中国-1 11,707 + 中国-2 11,661）",
+      "value": "P1"
+    },
+    {
+      "id": "atom_b2edca949814",
+      "type": "postmortem",
+      "domain": "case-chain-judge",
+      "content": "· 现象：对 chain_audit_llm 判分结果分层抽检 9 条，满分档（五环全2）与中等档（total 6-7）判分可靠、0 误判；刚过线档（c1=c3=c5=1）有水分——非案例文体混入主链完整集。\n· 实证 3 条（LLM判分 c1/c2/c3/c4/c5 vs 实际内容）：\n  - /Users/chenmingyao/Documents/repair-case/696652792139486/748582868582572.md（减速机漏油，1/0/1/0/1）：实为润滑油分析+维修建议，'维修建议'被当成步骤\n  - /Users/chenmingyao/Documents/repair-case/744804956993484/745194297551977.md（尾灯不亮，1/1/1/0/1）：实为电路原理（517号线/K16继电器）+'先易后难'原则\n  - /Users/chenmingyao/Documents/repair-case/723923842885331/740185633403410.md（显示屏白屏，1/0/1/0/1）：实为 8 个可能故障点清单+2 条通用处理\n· 三条共同缺失：无工况/工作小时数、无实测数值、无从现象到标题根因的排查推理链——'原理科普+维修指导'披着案例格式外衣。\n· 根因：judge prompt 未区分'步骤'与'清单'，看到编号列表就给 c3=1。\n· 拟加规则（用户要求先看原文，截至本批未拍板）：C3 只认'本案实际做了什么检查'；列表项为名词性短语（'油品型号不对'/'保险烧损'）→ 是清单，C3=0；动词性排查动作（'测量了保险片'/'检查了油位'）→ 是步骤。预期主链完整率 73%→~71%，水分基本清掉。\n· 影响面：刚过线档约 227/7,376 条（3%），估计水分约 100 条，占主链完整 5,404 条的 <2%。",
+      "quote": "在export中，抽样检查一下质量",
+      "value": "P1"
+    },
+    {
+      "id": "atom_12f42556904e",
+      "type": "convention",
+      "domain": "case-chain-judge",
+      "content": "· chain_audit_llm 长跑期间，chain_full/ 目录只在两个时机落盘：①全部判定结束的收尾汇总 ②手动 --export；中途只写 state.jsonl，目录保持旧快照（曾出现目录 980 篇 vs 实际主链完整 5,404 篇的偏差）。\n· 手动刷新：cd /Users/chenmingyao/.pi/agent/skills/case-chain-judge && node --experimental-strip-types scripts/judge-chain.ts --export；输出 /Users/chenmingyao/Documents/repair-case/chain_audit_llm/chain_full/（index.csv 含五环分数 + 海外/中国-1/中国-2 三个子目录）。\n· 遇到'是否已输出到目标文件夹'类问题：先比对目录 .md 数与 state.jsonl 主链完整数，不一致则先手动 --export 再回答。\n· fullrun.log 中'空 content'条目是 reasoning 超预算触发重试、被退避机制兜住，非失败（当时累计 fail=0）。",
+      "quote": "主链完整 5404/7376 条 → /Users/chenmingyao/Documents/repair-case/chain_audit_llm/chain_full (复制 5404)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_d94d26aced63",
+      "type": "sop",
+      "domain": "case-chain-judge",
+      "content": "· 从 chain_audit_llm/chain_full/index.csv（utf-8-sig）按库分层抽检 LLM 判分质量，random.seed(42) 保证可复现。\n· 每库抽 3 档各 1 条：满分（c1~c5 全=2）、刚过线（c1=c3=c5=1）、中等（total∈{6,7}）。\n· 逐条 cat 案例原文，对照五环口径人工裁决，按档位汇总误判率、定位水分来源档。\n· 本批 9 条抽检结论：满分/中等档可靠，水分集中在刚过线档（详见'裁判把原因清单当排查步骤'postmortem）。",
+      "quote": "# 按库分层，每库抽3条：1条满分(10) + 1条刚过线(c1=c3=c5=1) + 1条中等",
+      "value": "P1"
+    },
+    {
+      "id": "atom_7d058633c464",
+      "type": "postmortem",
+      "domain": "case-chain-judge",
+      "content": "现象：对 LLM 判分结果做分层抽样复检（满分/中等/刚过线三档，第二轮抽 12 条逐条读原文裁决）。满分档、中等档各 0/3 偏高，可靠；刚过线档（c1/c3/c5 全为 1）第二轮 2/6 偏高，综合水分率按 ~1/3 计（首轮 3/3 偏高、曾估 50%，后下修）。\n根因：偏高案例共同特征是正文编号列的是「可能原因/保养步骤」而非本案实际排查动作，判分时被当成排查链给分。实例均出自中国-1：副钩间隙大案（1/0/1/0/1）通篇是拆解保养指导；卷扬溜钩案（1/2/1/0/1）只列可能原因。\n反向偏差：部分判分偏保守——海外传感器损坏案（1/0/1/2/1）有「拔线束测电压→插回测输出→判定硬件问题」完整诊断序列，C3 可给 2 却给 1。\n量级：刚过线档约 270 条（已判 9,000 中），1/3 ≈ 90 条，占主链完整 7,000+ 篇的 ~1.3%，整体数据质量可用。\n处置方向（当时提出、未拍板）：把「可能原因清单 vs 实际排查动作」判别规则加进 judge prompt，重判刚过线档剔除这 ~90 条。",
+      "quote": "刚过线档比上次估的 50% 要低——6 条里 2 条偏高（都是中国-1 的“保养指导/可能原因清单”伪装成案例）",
+      "value": "P1"
+    },
+    {
+      "id": "atom_7bb8b5caae97",
+      "type": "rubric",
+      "domain": "repair-case-audit",
+      "content": "LLM 链路裁判（svc/deepseek-v4-flash）五环打分的三轮人工抽检定论（累计 27 条：满分 9、中等 9、刚过线 15）：\n- 满分档、中等档 0 误判，判分可信，无需重判。\n- 刚过线档（c1=c3=c5=1，三环均恰好 1 分、不含 2）5/15≈33% 偏高；偏高特征三轮完全一致：正文是维修处理/保养指导/分析方向/可能原因清单，而非本案实际排查动作——判别要害：步骤≠清单。\n- 裁判也会偏保守：SY135无法启动（1/2/1/0/1）有完整拔插 SCV 阀验证过程却只给 1 分。\n- 量级：刚过线档全量 717 条（占 25,428 的 2.8%；海外 22 / 中国-1 288 / 中国-2 407），按 33% 水分率约 236 条，相对 18,680 主链完整 <1%。",
+      "quote": "偏高案例的特征三轮完全一致——正文是“维修处理/保养指导/分析方向/可能原因清单”而非“本案实际排查动作”",
+      "value": "P1"
+    },
+    {
+      "id": "atom_12e6a1799e09",
+      "type": "spec",
+      "domain": "repair-case-audit",
+      "content": "任务（用户 1cbc2f7b）：在 18,680 条主链完整案例基础上过滤刚过线案例，过滤后数据输出到新文件夹。\n定案（用户 bedf01c8 拍板）：走方案 B 全量重判 25,428 条（估算 ~17 小时 + ~1.2 亿 tokens，svc/deepseek-v4-flash，~23 条/分钟），推翻助手推荐的方案 C（只对 717 条刚过线档做 LLM 二轮复判，~30 分钟）。用户未陈述理由；可推断的取向是数据质量优先于时间/算力成本。\n排除的理解：①方案 A 规则一刀切剔除全部 717 条——会误伤约 481 条好案例；②方案 C 只复判刚过线档。\n关键口径：刚过线档 = c1=c3=c5=1（不含 2 分），全量 717 条（2.8%：海外 22 / 中国-1 288 / 中国-2 407）。",
+      "quote": "全量重判",
+      "value": "P0"
+    },
+    {
+      "id": "atom_2548f863c0a0",
+      "type": "index",
+      "domain": "repair-case-audit",
+      "content": "全量裁判（25,428/25,429，仅 1 条 fail）产物，均在 /Users/chenmingyao/Documents/repair-case/chain_audit_llm/：\n- state.jsonl 逐条五环分（c1–c5）；fullrun.log 运行日志；summary.md 汇总。\n- chain_full/ 主链完整导出：index.csv 18,680 条（含五环分）；海外 1,687 / 中国-1 9,479 / 中国-2 7,514 篇。\n- 裁判技能入口：/Users/chenmingyao/.pi/agent/skills/case-chain-judge/scripts/judge-chain.ts（--export 导出主链完整到 chain_full/）。\n口径：主链完整 = c1/c3/c5 均≥1（现象+步骤+根因），全环完整 = 五环均≥1。\n重判前质量基线：均分 7.15/10；主链完整 73.5%、全环完整 50.9%；分档 海外 81.9% ≈ 中国-1 81.0% ＞ 中国-2 64.4%。全书性弱项 = C2 工况（均分 1.25），是全环完整率显著低于主链完整率的主因——大量案例有现象有根因但不说工况条件；中国-2 短板在 C3 步骤（1.18，比另两库低 0.35），内容多为可能原因清单/维修处理。",
+      "quote": "全书性弱项 = C2 工况（均分 1.25），是全环完整率（50.9%）显著低于主链完整率（73.5%）的主因",
+      "value": "P1"
+    },
+    {
+      "id": "atom_ad0e66d38f2b",
+      "type": "postmortem",
+      "domain": "repair-case-audit",
+      "content": "- 现象：复判范围初定为\"刚过线 717 条\"，用户指出 717 是采样检测的数量，不是 18,680 条主链完整数据中刚过线的总体数量\n- 根因：把抽样审计计数当成了全量口径。正确口径按被收紧的判分维度取全集：deepseek 首轮结果中主链完整（c1≥1 且 c3≥1 且 c5≥1）且 C3=1 的全部 3,375 条（海外 240 / 中国-1 1,476 / 中国-2 1,659），C3=2 的 15,305 条不受收紧 prompt 影响\n- 处置：生成 chain_audit_llm_glm/c3_1_list.txt（3,375 条）只复判这批。选方案 B（~1.75h / 约2,700万 tokens）否掉方案 A 全量重判 25,428 条（~20h / 约2亿 tokens），因为水分集中在 C3 步骤判分，B 省 ~87% 成本且不漏 C3 水分\n- 用户先暂停了已启动的 A 方案全量重判（PID 4982/4984，已判 60 条后 kill），质询是否在已过滤结果上继续过滤，澄清 A/B 区别后拍板 B",
+      "quote": "刚过线的717是采样检测的数量，并不是这1.8w数据中刚过线的数量，你再思考下",
+      "value": "P0"
+    },
+    {
+      "id": "atom_ed74b05014fa",
+      "type": "sop",
+      "domain": "case-chain-judge",
+      "content": "- 脚本：/Users/chenmingyao/.pi/agent/skills/case-chain-judge/scripts/judge-chain.ts，用 node --experimental-strip-types 运行\n- 环境变量：JUDGE_MODEL（复判用 svc/glm-5.3-flash，用户指定）、OUT_DIR（新目录，不覆盖旧结果）、JUDGE_CONCURRENCY=16 时 ~21 条/分钟\n- --sample N 抽样验证、--list <txt> 定向清单；OUT_DIR/state.jsonl 断点续跑，已有 key 自动跳过\n- 两轮结果分目录对照：chain_audit_llm/（deepseek-v4-flash 首轮）、chain_audit_llm_glm/（glm-5.3-flash 收紧复判，含 state.jsonl/results.csv/summary.md/chain_full/fullrun.log）\n- glm-5.3-flash out ~3k tokens/条；「空 content」是 reasoning 超预算触发退避重试，重试兜底正常\n- 死路一行：试过直接全量重判 25,428 条，因用户质询范围被 kill，改走 --list 定向",
+      "quote": "复判用svc glm5.3flash",
+      "value": "P1"
+    },
+    {
+      "id": "atom_8414553d035f",
+      "type": "rubric",
+      "domain": "repair-case-audit",
+      "content": "glm 收紧 prompt（步骤≠清单）对 C3 环的判别标志，经抽样读案例原文验证有效：\n- 判 0 剔除：条件性处理指导——句式「检查X是否Y，如果是则更换」，适用任何同类故障，未写本案实际测了什么、发现了什么。实例：平地机油缸内泄 723923842885331/740186426559366.md（「检查伸缩油缸是否内泄，如内泄的话，可将油缸拆下更换密封」）。\n- 判 1 保留：本案实际排查动作+结果+收敛——句式「拆卸X查看→经观察Y→排除Z」。实例：发动机动力不足 744804956993484/745196796877720.md（「拆卸燃油滤芯查看，经观察内部杂质并不多，可以排除滤芯堵塞」）。\n- 规模验证：3,375 条 deepseek C3=1 复判后 1,353 条（36.6%）改判 0，抽样核对剔除/保留案例原文均命中标志。",
+      "quote": "glm 的\"步骤≠清单\"判别标志精准命中了\"条件性处理指导\"vs\"真实排查动作\"的区别。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_9357e2f72753",
+      "type": "index",
+      "domain": "repair-case-audit",
+      "content": "repair-case 本轮审计产出：\n- 位置：/Users/chenmingyao/Documents/repair-case/chain_full_filtered/ —— index.csv=17,301 条保留索引（含最终五环分数+judge_model）、reject_list.csv=1,379 条剔除清单（含 glm e3 证据+note）、海外/1,600 篇、中国-1/8,948 篇、中国-2/6,753 篇 .md+meta。\n- 合并脚本：/Users/chenmingyao/Documents/repair-case/chain_audit_llm_glm/merge_export.py。\n- 当时定的合并口径：C3=2 沿用 deepseek 原结果（glm 未复判）；C3=1 用 glm 收紧结果覆盖——glm C3=0 剔除、C3=1/2 保留（用 glm 分数）、glm 未判(fail) 沿用 deepseek 保守保留。\n- 结果：18,680 → 17,301，剔除 1,379（7.4%）= C3 改判 0 的 1,353 条 + glm 改判致主链断裂（C1/C5=0）的 26 条；中国-2 剔除率最高（10%，7,514→6,753），印证其短板在 C3——大量案例是可能原因清单/处理指导而非真实排查记录。",
+      "quote": "这 54 条沿用 deepseek 原结果保守保留，不误剔。现在导出过滤后数据——合并 deepseek + glm 结果，C3=1 的用 glm 收紧结果覆盖：",
+      "value": "P1"
+    },
+    {
+      "id": "atom_daed6b1e0324",
+      "type": "convention",
+      "domain": "repair-case-audit",
+      "content": "svc/glm-5.3-flash 在 case-chain-judge 长链判分时的失败模式：约 1.6%（54/3,375）案例重试 5 次仍返回空 content，原因是 reasoning 超预算（glm 思考太长）；errors.log 逐条记录，格式「745204460119223 重试 5 次仍失败: 空 content (可能 reasoning 超预算)」。当时处置：fail 案例沿用 deepseek 原结果保守保留，不误剔。",
+      "quote": "745204460119223 重试 5 次仍失败: 空 content (可能 reasoning 超预算)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_74b8301232fa",
+      "type": "index",
+      "domain": "case-structuring",
+      "content": "位置 /Users/chenmingyao/Documents/expert-book-1014/：\n- extraction-plan.md：4 阶段流水线设计（Stage0 预处理 → Stage1a LLM 抽取 → Stage1b 双重质检 → Stage2 模板渲染）\n- extract.py：主脚本 = 预处理 + glm-5.3-flash 抽取 + deepseek-v4-flash 裁判 + template 渲染 + 断点续跑；clean_md_text 在 extract.py:251，只做删表格分隔行/表格转纯文本/删「照片.N」标记/压缩空格空行\n- template.md：条目模板 = front matter + 现象定义 + 排故过程 + 根因 + 维修注意 + 维修方法 + 附录来源\n- backfill_system.py：存量条目 16 系统分类补全\n- entries/：已产出 3,827 篇、858 个机型目录（占全量 25,429 的 15%）\n当时未覆盖：clean_md_text 未删 figcaption 噪音（SANY logo/标语/编辑人照片描述）与标题后缀（.pdf/时间戳）；一案例一条目，未按 template 合并成「一机型一现象一页」。当轮新提的规则式标准化方案与它重复，被放弃。",
+      "quote": "当前项目下已有一套完整的结构化工具，而且比我刚才提的方案更完善",
+      "value": "P2"
+    },
+    {
+      "id": "atom_5d3d881eeb12",
+      "type": "sop",
+      "domain": "search-strategy",
+      "content": "现象：被问「之前是不是实现过一个故障案例结构化工具」时，先在 /Users/chenmingyao 全盘 find+grep，返回空（输出仅 29 字）。用户纠正「就在当前项目下搜」，改在 expert-book-1014 根目录按文件名模式（*extract*/*struct*/*clean*/*standard*/*normaliz*）+ 内容 grep，立即命中完整工具链（extraction-plan.md/extract.py/template.md/entries/ 3,827 篇）。教训：找「之前是否实现过 X」第一步搜当前项目根目录，home 全盘扫描是错误起点。",
+      "quote": "就在当前项目下搜",
+      "value": "P0"
+    },
+    {
+      "id": "atom_56509b2fa978",
+      "type": "spec",
+      "domain": "corpus-cleaning",
+      "content": "基于 100 篇分层抽样（chain_full_filtered/sample100.txt；海外 9/中国-1 52/中国-2 39，seed 2024）逐篇阅读得出：\n- 编辑元数据表格：100% 覆盖，全删，仅提取机型+工作小时\n- figcaption 噪音：约 90%（SANY logo/「品质改变世界」标语/人像描述）；含数值/测量结果的 figcaption（如「图片中显示电流为100A」）属保留对象，纯规则删除会误删\n- 标题后缀：.pdf/时间戳\n- 跨故障内容混入、原理讲解与检测步骤混杂：规则无法识别，需 LLM 语义判断\n该口径当轮服务于一个规则清洗方案，方案因与 expert-book-1014 已有工具重复而搁置，噪音分类本身对后续任何清洗仍适用。",
+      "quote": "代理商/姓名/工号/编辑日期/订单号/技能等级/校准/审核/案例等级/编辑人照片/个人简介——全部剔除，仅提取「机型+工作小时」入设备信息段",
+      "value": "P2"
+    },
+    {
+      "id": "atom_7792a664872f",
+      "type": "spec",
+      "domain": "expert-book-pipeline",
+      "content": "- 范围：chain_full_filtered 共 17,301 篇 doc_id（comm 集合实测）。\n- 复用：与已有 entries/ 交集 2,704 篇直接复用，连 state 一起复制，零 LLM 调用。\n- 新跑：14,597 篇走 extract.py（glm 抽取 → 代码校验 → deepseek 裁判，不过回炉最多 1 次）。\n- 已有 entries/ 中 1,123 篇不在 filter 清单（被链路质量过滤剔除），不进新产出。\n- 产出：独立新目录（用户要求与已有隔离；方案提议 entries_filtered/，按 {机型}/{doc_id}.md 组织），预期 ~17,042 篇（按 1-2% 隔离率扣减）。\n- 用户否决'补细预处理'方案：不给 clean_md_text 加 figcaption/标题后缀/品牌标语清理规则，噪音交给 LLM 语义抽取兜底。",
+      "quote": "不用补预处理细节，直接跑filter后的1.7万的故障案例的结构化，如果有的已经在3827个结构化内容中，直接复用，结果放到一个新的文件夹",
+      "value": "P0"
+    },
+    {
+      "id": "atom_1636f7970f9d",
+      "type": "convention",
+      "domain": "expert-book-pipeline",
+      "content": "- 续跑：--list 指定 doc_id 清单；state 按 doc_id 记录在 work/*.state.json，rendered 自动跳过 → 中断后重跑同命令即续跑。\n- 流水线：glm 抽取 → 代码校验 → deepseek 裁判 → 不过回炉（最多 1 次）→ 渲染；已设 EXTRACT_MAX_TOKENS=32768，空 content 纳入重试。\n- 坑：state 建于 /mnt/d 路径时期，本地实测 `python3 extract.py --stats` 返回 '[10:15:18] 已建 state: 0'；实际 state 在本地 work/*.state.json，统计直接 glob 该目录。\n- quarantined 条目（已有 259 条）复用时必须连 state 一起复制，否则会被重跑形成死循环；最终产出不含隔离条目，缺口需单独统计。",
+      "quote": "state 读到 0 是因为路径还在 /mnt/d。直接看本地 work 目录的实际 state",
+      "value": "P1"
+    },
+    {
+      "id": "atom_c131b3ef212b",
+      "type": "sop",
+      "domain": "batch-extraction",
+      "content": "- extract.py 路径常量已改为可用环境变量覆盖：CASE_ROOT、OUT_ROOT、ENTRIES_SUBDIR、WORK_SUBDIR、FAILED_SUBDIR（edit 成功 + import 语法验证通过）\n- prepare_filter.py：生成 filter_list.txt（17,301 行）+ 把已有 entries/state 复制到 entries_filtered/、work_filtered/、failed_filtered/ 实现复用\n- 启动/续跑命令：cd /Users/chenmingyao/Documents/expert-book-1014 && CASE_ROOT=/Users/chenmingyao/Documents/repair-case ENTRIES_SUBDIR=entries_filtered WORK_SUBDIR=work_filtered FAILED_SUBDIR=failed_filtered nohup python3 extract.py --list filter_list.txt --concurrency 16 > extract_filter.log 2>&1 &\n- 断点续跑按 state：rendered 跳过——启动日志确认共 17,301、跳过 2,702、待处理 14,599；中断后同命令重跑自动续上，不丢进度",
+      "quote": "extract.py 自带断点续跑：复用的 2,702 篇识别 rendered 跳过，只跑 14,599 篇；中断后同命令重跑自动续上。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_abc9688f8c32",
+      "type": "postmortem",
+      "domain": "llm-api-ops",
+      "content": "- 现象：extract.py 全量任务启动后日志全部 LLM 调用 502，任务空转\n- 判别：pkill 停任务后，用最小请求（max_tokens=20）对同一 baseUrl 逐个测多个模型；svc/deepseek-v4-flash、svc/glm-5.3-flash、svc/glm-4.6-flash 全部在固定 ~3.0s 返回 HTTP 502 = 网关层故障（请求未到上游即被拒），与并发数/配置/代码无关；等 2 分钟两次复测未恢复\n- 架构事实：rootcloud（~/.pi/agent/models.json 的 providers.rootcloud）下所有 svc/* 模型走同一网关，网关故障时全部模型同时不可用\n- 处置：停任务等恢复，之后用原命令重启即可，state 断点续跑不丢进度",
+      "quote": "svc/deepseek-v4-flash: HTTP 502 (3.0s)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_ca3f37ec1f9a",
+      "type": "convention",
+      "domain": "api-providers",
+      "content": "~/.pi/agent/models.json 各 provider 实测（rootcloud 平台级 502 故障期间）：\n- irootech：可用。glm-5.3-flash HTTP 200 / 0.6s；另有 glm-5.3；无 deepseek 系模型。\n- deepseek-official/deepseek-chat、zhipu/glm-4-flash、moonshot/moonshot-v1-8k：全部 HTTP 401，apiKey 为占位符（形如 ****_KEY）未填真值。\n- aliyun-maas/deepseek-v3：HTTP 404 Model not exist。\n结论：rootcloud 不可用时唯一现成备用源是 irootech。\n排除的理解：不是「models.json 里配了的 provider 都能用」——多数条目 key 是占位符，启用前必须逐个发最小请求单测。",
+      "quote": "irootech的可以用吗 看看",
+      "value": "P0"
+    },
+    {
+      "id": "atom_9dd0872312a4",
+      "type": "sop",
+      "domain": "extract-pipeline",
+      "content": "API 中途换源的最小改动路径（配置源始终是 ~/.pi/agent/models.json）：\n- 先单测目标 provider：最小 chat completion 请求看 HTTP 状态+延迟（irootech glm-5.3-flash 实测 200 / 0.6s）。\n- provider 与模型改成环境变量覆盖：extract.py:31 原为硬编码 `PROVIDER = \"rootcloud\"`，改为 os.environ 读取，一次 edit 替换 2 处完成。\n- 小批量验证清单必须从待跑条目取（todo_new.txt 前 3 条）。走过的死路：`head -3 filter_list.txt` 取全量清单头部——头部是已复用条目，断点续跑会跳过，验证不到真实 LLM 链路。\n- 验证通过后再 nohup 全量。",
+      "quote": "31:PROVIDER = \"rootcloud\"",
+      "value": "P1"
+    },
+    {
+      "id": "atom_dd68f59df619",
+      "type": "spec",
+      "domain": "extract-pipeline",
+      "content": "决策记录：rootcloud 502 期间整体迁到 irootech 后，因 irootech 无 deepseek 系，异源裁判不可得；选择 glm-5.3（强）裁 glm-5.3-flash（轻量抽取）而非停摆，因为强模型仍能挑出部分抽取错误，叠加代码校验兜底；rootcloud 恢复后补异源裁判。",
+      "quote": "irootech 只有 glm 系列（无 deepseek）。裁判需要异源。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_a67e889976cb",
+      "type": "postmortem",
+      "domain": "expert-book-extract",
+      "content": "- 现象：extract.py 不设 OUT_ROOT 直接启动即崩，报错 `OSError: [Errno 30] Read-only file system: '/mnt'`。\n- 根因：OUT_ROOT 默认值是 `/mnt/d`（原 WSL 环境路径），macOS 上 /mnt 只读，未显式覆盖时产出写不进去。\n- 处置：启动命令显式加 `OUT_ROOT=/Users/chenmingyao/Documents/expert-book-1014`，重跑通过。\n- extract.py 的路径常量（CASE_ROOT/OUT_ROOT/ENTRIES_SUBDIR/WORK_SUBDIR/FAILED_SUBDIR）均已支持环境变量覆盖，跨机器迁移时路径项必须逐个显式设置，不能依赖默认值。",
+      "quote": "OSError: [Errno 30] Read-only file system: '/mnt'",
+      "value": "P1"
+    },
+    {
+      "id": "atom_0fcc3cc94ccc",
+      "type": "spec",
+      "domain": "expert-book-extract",
+      "content": "- extract.py 的 --list 对已有成功 state 的条目自动复用跳过；清单全是旧条目时日志报「共 3 条, 待处理 0 条」，看似执行了实际什么都没跑。\n- 排除的理解：排除「传入 --list 的条目都会重新执行」的理解——只有无 state 的条目才真跑 LLM。\n- 因此验证链路改动（换 provider、加 SKIP_JUDGE 开关等）时，小批量样本要从 todo_new.txt（待新跑清单）取头部，不能从全量 filter_list.txt 取头部。\n- 实测：从 filter_list.txt 取前 3 条全部被复用跳过；改从 todo_new.txt 取前 3 条，3/3 成功（irootech/glm-5.3-flash，约 4 秒完成）。",
+      "quote": "[10:56:51] 清单 filter_list_3.txt: 共 3 条, 待处理 0 条",
+      "value": "P1"
+    },
+    {
+      "id": "atom_46eaae21625b",
+      "type": "convention",
+      "domain": "expert-book-extraction",
+      "content": "- rootcloud 网关平台级故障：4 个模型 svc/glm-5.3-flash、svc/deepseek-v4-flash、svc/kimi-k2、dashscope/glm-5.2 及 /models 端点全部 HTTP 502，无幸存模型；判别方法是逐个测全部模型 + /models 端点，全 502 即平台级而非单模型故障\n- 故障期间抽取/裁判实际降级用 irootech glm-5.3-flash（当时唯一可用 provider）\n- expert-book-1014 全量抽取已用 irootech 跑完：17,264 条成功（2,705 复用 + 14,559 新跑）、37 条隔离（29 条 model 为空、6 条 API 超时、2 条 troubleshooting_process 编造被代码校验拦截）、成功率 99.79%、耗时约 3.4h、2,696 个机型目录，产出在 entries_filtered/{机型}/{doc_id}.md\n- 待办（当时定下）：14,559 条新跑条目 judge_skipped=true，rootcloud 恢复后计划用 svc/deepseek-v4-flash 补跑异源裁判",
+      "quote": "无幸存模型。当前只能继续用 irootech 跑。rootcloud 恢复后可对 `judge_skipped` 条目用 `svc/deepseek-v4-flash` 补跑异源裁判。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_845885185b5a",
+      "type": "postmortem",
+      "domain": "expert-book-extraction",
+      "content": "- 全量 17,145 条 rendered：根因空 366（2.13%）、排故步骤空 24（0.14%）、两者都空 3\n- 抽样 5 条根因空条目逐一核对原文：全是原文本身缺最终根因——只列检查项无实测结果、多候选故障点清单、通用排故方法无具体案例、原文残缺；LLM 忠实留空不编造，quality_flags 如实标注「原文信息不足」「故障原因不明确」等\n- 处置：非抽取质量问题，无需修复；原文没写的根因补裁判也补不出；新跑批 2.31% vs 复用批 1.16% 的差距部分，rootcloud 恢复后补裁判或可再降\n- 排故步骤空率仅 0.14%，抽取管线质量稳",
+      "quote": "irootech glm-5.3-flash 抽取是忠实的——原文没有根因就不编造（空着），2.5% 根因空率是原文缺陷，非抽取质量问题。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_c517fbe8fe59",
+      "type": "spec",
+      "domain": "expert-book-pipeline",
+      "content": "用户定的口径：根因或排故过程为空的故障案例不进入 entries_complete，其余按 {机型}/{doc_id}.md 复制到该目录。排除的理解：不是「两者都空才过滤」（是并集过滤，both_empty 单独计数仅为避免重复统计），也不是只检查根因。执行结果（脚本跑通验证）：17,145 条 rendered 中过滤 387（根因空 366 / 排故步骤空 24 / 两者都空 3），保留 16,758 篇、2,654 个机型目录、源文件缺失 0。链路累计：17,301 清单 → 17,264 rendered → 16,758 完整条目。",
+      "quote": "过滤 根因/排故过程为空的故障案例后，将剩下的故障案例输出到新的文件夹",
+      "value": "P0"
+    },
+    {
+      "id": "atom_3db0a13ced2c",
+      "type": "sop",
+      "domain": "expert-book-pipeline",
+      "content": "用户口径：以「能否支撑故障诊断」为标准评估条目质量。基于 8 条采样发现 6 类问题：① 现象定义缺区分鉴别（~40%）——标注 schema 已有 confusable_symptom 字段但大部分抽取时未填，需 LLM 从排故过程的排除项反向生成；② 排故步骤缺结构性（~60%）——编号残缺/混合编号等变体；③ 测量标准值缺失（~30%）；④ 根因命名不规范（~25%）；⑤ 机型目录命名不归一；⑥ 跨案例矛盾（同机型同现象不同根因），留待合并阶段批量比对。当时建议的执行顺序：P0 机型目录归一（规则+LLM，全部 16,758 条）→ P1 步骤结构化 + 根因命名 → P2 标准值补全 + 区分鉴别 → P3 跨案例矛盾。关键判断：全部属 LLM 二次加工、无法靠规则完成；问题①③需理解全文语义，问题②④可在现有 JSON state 上重渲染、无需重跑抽取。百分比为 8 条采样的估计值，方案尚未经用户确认执行。",
+      "quote": "看一下，entries_complete，采样一批内容，然后一条一条看，从支撑故障诊断的角度来看，还需要做哪些清洗或者标准话的事情",
+      "value": "P1"
+    },
+    {
+      "id": "atom_228dd16b1a56",
+      "type": "spec",
+      "domain": "expert-book-data-cleaning",
+      "content": "entries_complete 共 2,654 个机型目录，问题分类与归一口径（30 目录试点验证：27 成功，13 条变化全部 high 置信且正确）：\n- T1 括号后缀（~158 目录）：括号内为配置/批次/桥数/排放阶段后缀，剥离后保留主型号。SYT80(T5710-6)→SYT80、SAC5000T(6桥)→SAC5000T、SY550(G4)→SY550、SY412C-8C(V)→SY412C-8C、掘锚机(全机型)→掘锚机\n- T2 连字符变体（~142 组）：SY306C-8Y vs SY306C8、HZS180C6 三种写法，去分隔符归一；本次试点抽到少，全量时需重点验证\n- T3 脏名：SYM5320JQZ-(STC250E5) 悬挂连字符\n- T4 OCR 错误：SPSA14AC→SPA14AC、SPS047DC→SPS0407DC\n- T5 太泛（~104 目录）：250E/135/720/800T 纯数字或吨位泛称，回源 .meta.json 找真机型\n排除的理解：STC250 系列 37 个目录（C5-1/C5-2/T5-6）是真实不同型号，不归一；中文机型名保留；低置信度（120C/130T/800T/720 推不出真型号）保原名不瞎猜；SCC1000A5 一条 LLM 自相矛盾（与已有 SCC1000A 关系未说清），需人工裁决。\n归一动作只重命名目录+改 front matter model，source 与 doc_id 不变，doc_id 跨库零重复故无冲突。",
+      "quote": "STC250系列37个目录是真实不同型号（C5-1/C5-2/T5-6）不归一",
+      "value": "P1"
+    },
+    {
+      "id": "atom_26e42224f5a3",
+      "type": "postmortem",
+      "domain": "llm-api",
+      "content": "现象：pilot_model_norm.py 批量调 glm-5.3-flash（PROVIDER=irootech）时部分请求 finish_reason=length 且 content_len=0，退避 1s→16s 重试 5 次仍失败；试点 30 目录失败 3 个（SSP90EC、264H 等，~10%）。\n根因：max_tokens=2000 太小——glm-5.3-flash 是 reasoning 模型，思考 token 先占满预算，正文未输出即被截断，content 为空。\n修复：max_tokens 提到 ≥3000，全量跑（~1,000 目录）建议 4000。\n判据：content_len=0 的 finish_reason=length 是 reasoning 占满预算的信号，不是网络错误，应加大 max_tokens 而非无限重试。",
+      "quote": "✗ SSP90EC:  API 重试 5 次仍失败: finish_reason=length (content_len=0)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_4cf522ba2721",
+      "type": "spec",
+      "domain": "expert-book-data-cleaning",
+      "content": "助手原提议小批量试点同时跑 P0（机型归一）+P1（步骤结构化等）两类清洗，用户收窄：只做问题 5 机型目录归一，先小批量试点看效果与成本，再决定是否全量（msg 5fdd852b）。随后 30 目录试点即按此范围执行；其余清洗问题（现象区分鉴别、步骤结构化、测量标准值补全、根因命名、跨案例矛盾）全部暂缓。",
+      "quote": "只做 问题 5 机型目录归一，小批量试点看看",
+      "value": "P0"
+    },
+    {
+      "id": "atom_b075160e7d1b",
+      "type": "index",
+      "domain": "expert-book-data-cleaning",
+      "content": "- 试点脚本：/Users/chenmingyao/Documents/expert-book-1014/pilot_model_norm.py（dry-run 设计：仅记录映射，不动文件）\n- 映射表：model_alias_pilot.json（项目根目录；27 条成功 = 13 变化 + 14 不变；置信 high=22 / medium=1 / low=4）\n- 运行：PROVIDER=irootech EXTRACT_MODEL=glm-5.3-flash python3 pilot_model_norm.py",
+      "quote": "Successfully wrote to /Users/chenmingyao/Documents/expert-book-1014/pilot_model_norm.py",
+      "value": "P1"
+    },
+    {
+      "id": "atom_9eeb1a83f95f",
+      "type": "sop",
+      "domain": "expert-book",
+      "content": "用户拍板的两步门禁：1) LLM 批量判卷只产出映射表 model_alias_pilot.json（旧目录名→新目录名+置信度+理由），不动文件；2) 人工抽检 50 条确认后才执行重命名。当时范围：entries_complete 共 2654 个机型目录，待归一 455 个（T1 括号后缀/T3 脏名/T5 太泛 + T2 归一后撞名组），涉及 3398 篇条目。设门禁的依据：30 目录试点中 13 条变化全对但出现 1 条 SCC1000A5 误判，LLM 判卷结果不能直接落地为破坏性重命名。运行方式：PROVIDER=irootech EXTRACT_MODEL=glm-5.3-flash 后台 nohup 跑 pilot_model_norm.py，日志 model_norm.log。",
+      "quote": "max token可以提到足够高，跑完生成映射表 + 人工抽检 50 条再执行重命名。",
+      "value": "P0"
+    },
+    {
+      "id": "atom_b430b762c120",
+      "type": "postmortem",
+      "domain": "expert-book",
+      "content": "· 现象：max_tokens 调高后全量跑仍每分钟多次 finish_reason=length (content_len=0)，进度 100/455 时仍在重试。\n· 机制：reasoning token 占满输出预算→正文 content_len=0。\n· 处置：依赖脚本内 5 次重试+指数退避（1s→16s）继续跑；吞吐约 100 目录/25 分钟（含重试），455 个预计 2 小时以上；需盯连续 length 卡死的目录。\n· 教训：对该模型做批量结构化判卷，max_tokens 要设得远大于预期输出，且不能假设调高一次就一劳永逸。",
+      "quote": "[10:10:13]    调用异常: finish_reason=length (content_len=0), 重试(退避 4s)",
+      "value": "P1"
+    },
+    {
+      "id": "atom_c970d63942dc",
+      "type": "postmortem",
+      "domain": "data-pipeline",
+      "content": "现象：杀掉停滞的试点进程后 model_alias_pilot.json 仅存 27 条，当轮约 80 条已跑结果全部丢失。根因：脚本只在全部目录跑完后一次性写文件，中途零落盘。处置：重写为 model_norm_full.py，每条即时保存（可中断续跑）+ 并发 8，随后全量跑完 455 个目录（变化 232 / 不变 223）无丢失。教训：长跑 LLM 批处理若只在结尾写文件，进程被杀或崩溃即丢掉全部已完成结果；增量落盘中断才可续跑。",
+      "quote": "映射表只有 27 条（试点），因为脚本只在最后一次性写文件——刚才 80 条结果全丢了",
+      "value": "P1"
+    },
+    {
+      "id": "atom_d38c579a9081",
+      "type": "postmortem",
+      "domain": "data-pipeline",
+      "content": "现象：试点进程 30971 自 10:18:49 起停滞 16+ 分钟无输出，日志连续「调用异常: finish_reason=length (content_len=0), 重试(退避 1s/2s/4s)」，累计重试异常 20 次。根因：目录按字母序处理，轮到 T5 纯数字/超短机型名（共 83 个）时 LLM 思考过长触发 finish_reason=length，单条重试链约 20 分钟。处置：T5 纯数字/吨位泛称类不调 LLM，直接标 confidence=low 保留原名（省 83 次调用），全量 455 目录顺利跑完。教训：让 LLM 归一纯数字/无语义短串会稳定触发超长思考，此类条目应规则化跳过而非进模型。",
+      "quote": "原因是目录按字母序排，当前跑到了 T5（纯数字类），LLM 对\"纯数字机型名\"思考过长 → `finish_reason=length` 反复重试，每条 20 分钟。",
+      "value": "P1"
+    },
+    {
+      "id": "atom_8ac9f8623b9d",
+      "type": "spec",
+      "domain": "model-normalization",
+      "content": "依据：全量 455 目录跑完后人工抽检 50 条变化（random.seed(99)），39 对 / 11 错。可靠（抽检零错）：①去括号后缀 ②中文去「(全机型)」③脏字符归一（–/—/悬挂连字符 → 标准 -）。不可靠（抽检出错）：改字母（STB300T5→STC300T5，臆造不存在的型号）、丢后缀（SY200CPLUS→SY200C，实为不同型号）、大小写改动（SY60CPRO→SY60CPro）、连字符↔空格互转（SY5313THB-46→SY5313THB 46 等多条，且与「脏符→连字符」方向相反、规则不统一）。修复方向（当时提出、待用户确认）：映射表只保留 3 类安全操作，其余一律保留原名。排除的理解：不是 LLM 归一整体不可用——括号/中文/脏字符三类抽检全对；不可信的仅是涉及字母、后缀、大小写、连字符/空格的改写。",
+      "quote": "括号剥离和中文清洗可靠（high），但连字符/空格/PRO 大小写类改写不可靠，必须收紧规则",
+      "value": "P1"
+    },
+    {
+      "id": "atom_3cb3c9a2e744",
+      "type": "spec",
+      "domain": "agent-workflow",
+      "content": "用户在监控试点进程时纠正（原话「看下进度，不要sleep」）：要求看进度就直接查（ps/grep/tail 一次拿全）并汇报，不要先 sleep 再查；此前 sleep 600 的查询命令被中止。排除的理解：不是要求更高轮询频率或更短等待，而是不要阻塞式等待后才汇报。",
+      "quote": "看下进度，不要sleep",
+      "value": "P0"
+    },
+    {
+      "id": "atom_7538bc51af69",
+      "type": "postmortem",
+      "domain": "data-normalization",
+      "content": "现象：v1 用 LLM 归一机型目录名，人工抽检发现 11 条非法改写；v2 加硬校验后实测把这 11 条全部拦回原名、另拦下 8 条新臆改。\n根因：LLM 把型号标识符当自由文本改写，错误倾向固定四类——改字母数字主体、丢 PLUS/PRO 等后缀、连字符↔空格互转、大小写变更；且方向自相矛盾（有的把空格改连字符、有的把连字符改空格）。\n处置（用户确认采用，落在 model_norm_v2.py）：安全操作走纯规则零 LLM——R1 去括号后缀、R2 中文去范围后缀（如\"(全机型)\"）、R3 脏字符（– — ＿ 连续连字符）归一为单个'-'并去首尾；LLM 只处理剩余疑难，输出必须过硬校验：V1 禁改字母数字主体 / V2 禁连字符↔空格互转 / V3 禁丢 PLUS/PRO 后缀 / V4 禁大小写变更（PRO/Pro 统一除外），不过校验→丢弃 LLM 结果保留原名。\n附加坑：被校验拦回的条目 confidence 不能沿用 high（实际未改，语义矛盾），需改标。\n工程细节：脚本每条即时保存、可中断续跑。",
+      "quote": "=== 被校验拒绝的 8 条 (v1 会误改, v2 拦住了) ===",
+      "value": "P0"
+    },
+    {
+      "id": "atom_374489d799a5",
+      "type": "postmortem",
+      "domain": "data-normalization",
+      "content": "现象：T2 撞名组（norm_key = 去括号→去非字母数字→大写；共 510 个目录）里存在「纯数字 vs 中文全名」配对（1240/沃尔沃1240、100/100吨汽车起重机），规则归到信息更全的中文名，命中 47 条。\n根因：纯数字名不区分类别；同组有 ≥2 个不同中文全名时（100 组同时有 100吨履带起重机、100吨汽车起重机），'取最短中文名'会随机钉死一个具体机型，等于臆造归并（实际产出 100→100吨履带起重机）。\n处置：这类条目标 medium 留人工确认，不当 high 自动通过。判据：norm_key 同组只有一个中文全名→可自动归并；≥2 个不同中文全名→保留原名/泛称，人工定。",
+      "quote": "取最短中文名是错的（应保留泛称或人工定）。这批标 medium 需人工确认",
+      "value": "P1"
+    }
+  ]
+}

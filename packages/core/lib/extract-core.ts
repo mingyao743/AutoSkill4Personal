@@ -6,18 +6,26 @@ import { buildUserPrompt, type CatalogCategory } from "./prompt.ts";
 import { serializeEntries } from "./serialize.ts";
 import { chatComplete, extractJsonFromText } from "./llm.ts";
 import { validateAtom } from "./validate.ts";
+import {
+  admissionGate,
+  categoryForType,
+  defaultAtomType,
+  isDocType,
+  isKeepAs,
+  keepAsForType,
+} from "./admission.ts";
 import { atomId, type AtomSource, type KnowledgeAtom } from "./atom-store.ts";
 import type { MessageEntry, Window } from "./types.ts";
 
 export interface ExtractOptions {
-  systemPrompt: string; // buildSystemPrompt(loadCatalog()) 的产物
+  systemPrompt: string; // buildSystemPrompt() 的产物
   model?: string; // 覆盖默认主模型
   extractedBy: string; // offline-pipeline / compaction-rescue / ...
   status?: string; // 入库状态，默认 draft；compaction 抢救直入 published
   confidenceFloor?: number; // 抢救场景下限 0.7
 }
 
-/** LLM 输出 → 原子数组（null = 解析失败） */
+/** LLM 输出 → 知识卡片数组（null = 解析失败） */
 export function parseAtoms(text: string): Record<string, unknown>[] | null {
   const jsonStr = extractJsonFromText(text);
   if (!jsonStr) return null;
@@ -45,7 +53,7 @@ const PASS_FIELDS = new Set([
   "problem", "scenario", "impact", "root_cause", "temp_fix", "permanent_fix", "improvements",
 ]);
 
-/** 原始 LLM 输出 → 规范化原子（补默认值、校 msg_range、算 atom_id） */
+/** 原始 LLM 输出 → 规范化知识卡片（补默认值、校 msg_range、算 atom_id） */
 export function normalizeAtom(
   raw: Record<string, unknown>,
   w: Pick<Window, "window_id" | "session_id" | "msg_range">,
@@ -60,9 +68,12 @@ export function normalizeAtom(
   const sources: AtomSource[] = [{ session_id: w.session_id, window_id: w.window_id, msg_range: msgRange }];
   const content = String(raw.content ?? "").trim();
   const rawCategory = String(raw.category ?? "").match(/\d{2}/)?.[0] ?? ""; // 防御：剥掉模型可能附加的类名文字
+  // 类型化准入：doc_type 合法 → 分类/去向查表推导，模型不参与
+  const rawDocType = raw.doc_type != null ? String(raw.doc_type) : undefined;
+  const docType = isDocType(rawDocType) ? rawDocType : undefined;
   const atom: KnowledgeAtom = {
     atom_id: atomId(content, sources),
-    category: rawCategory,
+    category: docType ? categoryForType(docType) : rawCategory,
     atom_type: String(raw.atom_type ?? ""),
     content,
     domain: String(raw.domain ?? "").trim(),
@@ -78,6 +89,19 @@ export function normalizeAtom(
   for (const [k, v] of Object.entries(raw)) {
     if (PASS_FIELDS.has(k) && v != null) atom[k] = v;
   }
+  // 分诊字段最后写，避免被 PASS_FIELDS 透传的原始值覆盖（category 也在 PASS_FIELDS 里）
+  if (rawDocType != null) atom.doc_type = rawDocType;
+  if (docType) {
+    atom.category = categoryForType(docType);
+    // case 是唯一允许在 reference / data 之间选的类型（工件 vs 参考）
+    atom.keep_as = docType === "case" && raw.keep_as === "data" ? "data" : keepAsForType(docType);
+    if (!atom.atom_type) atom.atom_type = defaultAtomType(docType);
+  } else if (isKeepAs(raw.keep_as)) {
+    atom.keep_as = raw.keep_as;
+  }
+  const why = typeof raw.why === "string" ? raw.why.trim() : "";
+  if (why) atom.why = why;
+  atom.expires_when = typeof raw.expires_when === "string" && raw.expires_when.trim() ? raw.expires_when.trim() : null;
   if (Array.isArray(raw.refs)) atom.refs = raw.refs as string[];
   // grounding 收敛到枚举：非法取值丢弃（校验器只约束存在的取值）
   if (!["G1", "G2", "G3", "G4"].includes(String(atom.grounding))) delete atom.grounding;
@@ -148,9 +172,18 @@ export async function extractWindow(
     const atom = normalizeAtom(raw, w, validIds, opts.extractedBy);
     if (floor > 0 && atom.confidence < floor) atom.confidence = floor;
     atom.status = status;
-    // G4 双重拒：机械判定（区间无 toolResult 且无 user）或 LLM 自报 G4（EXTRACTION_PRINCIPLES §五）
-    if (isMechanicalG4(atom, w.entries) || atom.grounding === "G4") {
-      rejected.push({ atom, reason: "G4 纯生成默认不抽（EXTRACTION_PRINCIPLES §五：无接地拒入池）" });
+    // LLM 自报 G4：默认不抽（EXTRACTION_PRINCIPLES §五）
+    if (atom.grounding === "G4") {
+      rejected.push({ atom, reason: "自报 G4 纯生成，默认不抽（人的陈述/决策除外）" });
+      continue;
+    }
+    // 准入规则：来源 / 接地 / 敏感 / 价值理由。放在 validate 之前，省一次无谓校验。
+    const gate = admissionGate(atom, {
+      hasGrounding: !isMechanicalG4(atom, w.entries),
+      requireWhy: true,
+    });
+    if (!gate.ok) {
+      rejected.push({ atom, reason: gate.reasons.join(";") });
       continue;
     }
     const v = validateAtom(atom, catalog);
@@ -160,7 +193,7 @@ export async function extractWindow(
   return { window_id: w.window_id, ok: true, atoms, rejected };
 }
 
-/** 过滤掉已存在原子（幂等）；被拒原子已在 result.rejected 里 */
+/** 过滤掉已存在知识卡片（幂等）；被拒知识卡片已在 result.rejected 里 */
 export function acceptedOnly(
   result: WindowExtractResult,
   knownAtomIds: Set<string>,

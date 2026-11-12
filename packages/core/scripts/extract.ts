@@ -96,7 +96,7 @@ files.sort();
 
 // ---------- 主流程 ----------
 const catalog = loadCatalog();
-const systemPrompt = buildSystemPrompt(catalog);
+const systemPrompt = buildSystemPrompt();
 const doneWindows = extractedWindowIds();
 const knownAtomIds = existingAtomIds();
 
@@ -188,8 +188,8 @@ for (const file of files) {
 
     for (const r of result.rejected) {
       totalDropped++;
-      console.error(`  [${w.window_id}] 原子被拒: ${r.reason.slice(0, 200)}`);
-      logError(`${w.window_id} 原子被拒(${r.reason}): ${JSON.stringify(r.atom).slice(0, 500)}`);
+      console.error(`  [${w.window_id}] 知识卡片被拒: ${r.reason.slice(0, 200)}`);
+      logError(`${w.window_id} 知识卡片被拒(${r.reason}): ${JSON.stringify(r.atom).slice(0, 500)}`);
     }
 
     const accepted = acceptedOnly(result, knownAtomIds);
@@ -204,7 +204,7 @@ for (const file of files) {
     const total = result.atoms.length + result.rejected.length;
     console.log(`  [${w.window_id}] ${w.entry_count} 条消息 → 抽取 ${total}，入库 ${accepted.length}，拒 ${result.rejected.length}`);
 
-    // skill 反馈扫描（原子抽取成功后追加 pass；--dry 时只计数不写账）
+    // skill 反馈扫描（知识卡片抽取成功后追加 pass；--dry 时只计数不写账）
     feedbackScanned++;
     const nVerdicts = await scanSkillFeedback(serializeEntries(w.entries), w.window_id, sessionId, model);
     totalFeedback += nVerdicts;
@@ -215,7 +215,7 @@ for (const file of files) {
 // ---------- 汇总 ----------
 console.log(`\n========== 汇总 ==========`);
 console.log(`窗口跳过(已抽): ${totalSkippedWindows}`);
-console.log(`原子入库: ${totalAtoms}（dry=${dryRun}），被拒: ${totalDropped}`);
+console.log(`知识卡片入库: ${totalAtoms}（dry=${dryRun}），被拒: ${totalDropped}`);
 console.log(`skill 反馈扫描: 扫了 ${feedbackScanned} 窗，判定入库 ${totalFeedback} 条`);
 for (const c of Object.keys(categoryCounts).sort()) {
   const cat = catalog.find((x) => x.category === c);

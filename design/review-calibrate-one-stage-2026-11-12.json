@@ -1,0 +1,191 @@
+{
+  "ts": "2026-11-12T01:21:19.215Z",
+  "session": "session-9583a6a6-27aa-48f9-900a-d9f576daa4dd",
+  "stage": "one-stage",
+  "model": "glm-5.3-flash",
+  "batchChars": 12000,
+  "coverage": {
+    "total": 288,
+    "covered": 0,
+    "unreviewed": 288
+  },
+  "batches": {
+    "used": 5,
+    "total": 5
+  },
+  "tokens": {
+    "in": 44782,
+    "out": 160364,
+    "total": 205146
+  },
+  "elapsedMs": 1071103,
+  "atoms": 11,
+  "rejected": 1,
+  "rejectReasons": {
+    "无接地（区间内既无 user 消息也无工具结果，GN 纯生成）": 1
+  },
+  "dropped": 59,
+  "byType": {
+    "spec": 6,
+    "case": 2,
+    "convention": 1,
+    "index": 2
+  },
+  "compress": {
+    "ratio": 0.517,
+    "fallback": 0,
+    "noGain": 87
+  },
+  "oneStage": {
+    "noValueBatches": 0,
+    "retriedBatches": 1,
+    "needContext": 0,
+    "dropRows": 59
+  },
+  "drops": {
+    "total": 59,
+    "byReason": {
+      "纯流水账": 43,
+      "可再生": 6,
+      "P3自说自话": 7,
+      "已有重复": 2,
+      "无动作改变": 1
+    },
+    "byAxis": {
+      "—": 30,
+      "稀缺性=0": 4,
+      "验证性=0": 7,
+      "复现性=0": 18
+    }
+  },
+  "overlap": {
+    "n": 11,
+    "p50": 0,
+    "p90": 0.25,
+    "max": 0.25,
+    "threshold": 0.6
+  },
+  "probes": [
+    {
+      "probe": "雷达还是要用推理模型",
+      "messages": 2,
+      "hit": true,
+      "hitMessages": 2
+    },
+    {
+      "probe": "这个词太术语了吧",
+      "messages": 1,
+      "hit": false,
+      "hitMessages": 0
+    },
+    {
+      "probe": "和我的预期是相反的",
+      "messages": 2,
+      "hit": true,
+      "hitMessages": 2
+    },
+    {
+      "probe": "还是按类型分档",
+      "messages": 2,
+      "hit": false,
+      "hitMessages": 0
+    },
+    {
+      "probe": "正则先塞",
+      "messages": 3,
+      "hit": true,
+      "hitMessages": 3
+    }
+  ],
+  "stopped": null,
+  "cards": [
+    {
+      "id": "atom_f0154584e4f8",
+      "type": "spec",
+      "domain": "autoskill-atoms",
+      "content": "用户预期（2026-11-11）：原子能力的主要来源不应是 compaction 抢救——当时现状是大部分原子都走这条路抢救，用户明确说'和我的预期是相反的'。\n- 来源结构目标：signal ≥60%、终采 ~30%、抢救 ≤10%；rescue >20% 触发告警（判定另外两条捕获路断了）。\n- 存量处置：210 条既有 rescue 原子不回溯降级——新技能不吃、旧技能不动，等下次重编译自然替换。\n- 把关方式：人工只确认抢救摘要卡/技能草稿，原子靠复现自动晋升（否决了'人工确认抢救产物'）。",
+      "quote": "现在大部分的场景都是这条路抢救原子能力，和我的预期是相反的",
+      "value": "P0"
+    },
+    {
+      "id": "atom_82082646179b",
+      "type": "spec",
+      "domain": "autoskill-radar",
+      "content": "规则：正则在信号雷达里只能插队、标 hot、决定压缩表示，无权决定'这条不给 LLM 看'；LLM 是唯一能判定候选的角色。\n- 每条消息都必须进批次（按信息密度压缩表示），预算超限标'未审'下轮继续，不丢弃。\n- 实证：855 条真实会话中 7 条有价值反馈不含任何否定词，正则信号词全部漏掉——否定词匹配会系统性漏掉隐性修正（已写入方案 §4.5）。\n- 被否方案：'正则预筛通过再送 LLM'——只要一条消息没进 LLM，召回上限就被正则锁死，原理性漏洞，调正则救不回来。",
+      "quote": "信号雷达直接用 LLM 正则先塞，怎么能保证召回全呢？",
+      "value": "P0"
+    },
+    {
+      "id": "atom_25fda8383fe2",
+      "type": "spec",
+      "domain": "autoskill-radar",
+      "content": "用户逐条拍板（2026-11-11，写入 TRIGGER_PLAN.md §十七并已实现）：\n- 雷达必须用推理模型——因为正则/便宜模型漏隐性修正（7 条实证）；reasoning_effort: low 默认不传，实测超预算再开。\n- 输出逐条写理由——为了候选可人工审计。\n- 工具参数只留前 80 字；助手消息首尾各留 500 字。\n- 抢救摘要卡确认入口 = 下次会话首轮提示（并入 pendingNotice）。\n- 成本含义：输出成本降不下来（实测 156k），省钱靠'每条消息一辈子只扫一次'：默认只扫未覆盖新消息，全量回扫是显式 --backfill 命令而非自动行为。\n- 雷达调用必须做成后台任务+进度记录（22 批约 10 分钟），不阻塞会话。\n- 试跑验证：2 批 in 10,282 / out 11,885，候选解析、usage 捕获、探针匹配正常。",
+      "quote": "雷达还是要用推理模型，\n输出还是要逐条写理由\n工具参数只留前 80 字\n抢救确认下次会话首轮提示",
+      "value": "P0"
+    },
+    {
+      "id": "atom_f7f399fc6d2e",
+      "type": "case",
+      "domain": "autoskill-radar",
+      "content": "game-design 会话（855 条消息）实测：原始 412,003 字符 → 雷达输入 99,470（24%）。\n- 用户消息 1,774 字符（占 0.4%）——全文送审，信号密度最高，不压。\n- 助手消息 48,947 → 44,789（首尾各 500，占 11%）——均值仅 141 字，只有 3% 超 1000 字，500/500 近乎不截断。\n- 工具结果 361,282 → 52,907（首行+状态，占 13%）——成本大头，压缩最狠。\n据此用户拍板助手消息首尾各 500 字。",
+      "quote": "助手消息首尾各 500字先看看覆盖",
+      "value": "P1"
+    },
+    {
+      "id": "atom_28ff85a75ea6",
+      "type": "spec",
+      "domain": "autoskill-pipeline",
+      "content": "实测 855 条会话内容构成：thinking 702,076 字符（47%）、正文 406,759（27%）、工具调用参数 397,402（26%）——抽取时有近一半内容从未被看过。\n- 现状：serialize.ts 只保留 text 和 toolCall，thinking 块直接跳过；window.ts 字符预算不计它。\n- 分层策略（写入方案 §4.7）：抽取/雷达不用 thinking——P3 级、未验证、会自我推翻、体量巨大；编译阶段按需用——模型最初的错误假设只写在 thinking 里，全丢会丢掉'被否路径'和'错在哪'。",
+      "quote": "thinking 是模型自己的推演（P3 级），未验证、会自我推翻、体量巨大",
+      "value": "P1"
+    },
+    {
+      "id": "atom_88dae6adc11c",
+      "type": "case",
+      "domain": "autoskill-radar",
+      "content": "同一 855 条会话（glm-5.3-flash）实测：\n- 旧参数基线：22 批 / 187,502 字符 / in 79k + out 156k token，约 10 分钟。\n- 单位成本 ≈0.15k token/条消息；855 条 ≈120k。\n- 护栏：单会话 150k、单日 400k；超限停在'未审'，不丢消息。\n- 新参数预估：全量回扫 ~212k（一次性、显式 --backfill）；200 条稳态会话 ~49k；单次增量（40 条/批）~10k。\n- 2 批试跑实测：in 10,282 / out 11,885。",
+      "quote": "这也是实测 156k 输出、成本压不下来的原因",
+      "value": "P1"
+    },
+    {
+      "id": "atom_5acc12336653",
+      "type": "convention",
+      "domain": "autoskill-env",
+      "content": "全量校准/雷达走本机 pi 默认 provider：\n- provider=glm-recovery（~/.pi/agent/settings.json 的 defaultProvider）；model=glm-5.3-flash。\n- 端点 http://10.147.252.44:30772/v1（OpenAI 兼容 /chat/completions，内网网关）——断网/网关不可达直接失败。\n- apiKey 在 ~/.pi/agent/models.json（Bearer 明文存储，未打印）。\n- 解析链 resolveStandaloneConfig()：AUTOSKILL_PROVIDER 未设 → settings 默认 provider。--model 只覆盖模型名，换整条链路需设 AUTOSKILL_PROVIDER。\n- 该模型为推理型，输出 token 含思考——156k 输出降不下来的原因。",
+      "quote": "端点 | `http://10.147.252.44:30772/v1`（OpenAI 兼容 `/chat/completions`，内网网关）",
+      "value": "P1"
+    },
+    {
+      "id": "atom_bc6047890a71",
+      "type": "index",
+      "domain": "autoskill-design-docs",
+      "content": "- 雷达/触发机制设计文档：/Users/chenmingyao/Documents/cmy-only/AutoSkill4Personal/design/TRIGGER_PLAN.md（§4.5 正则漏检实证、§4.6 实测校准、§4.7 thinking 分层、§5 成本表、§十七 决议）。\n- 瞬态域定义与判据、M0–M4 决议：同目录 design/SKILL_COMPILER.md（§七、§十三）。",
+      "quote": "trigget_plan的路径发我一下",
+      "value": "P2"
+    },
+    {
+      "id": "atom_8055629c6a1d",
+      "type": "spec",
+      "domain": "knowledge-capture",
+      "content": "artifact 捕获的信号判定：读本身不是信号，资料被结论引用/复述/依赖才是信号——agent 读 50 个文件不是知识，结论里引用的那一段才是。读来的资料按价值形态分三路：支撑结论→证据（存结论原子+指针，不存原文）；需整体复用的外部模板/规范→素材（存结构化缩减）；以后要找回→导航（存 index 原子：位置+用途+失效条件）。排除的理解：①v1 曾按“读/生成”二分把所有读来的资料排除在 artifact 入口外，用户指出该切法错误后废弃；②“agent 读过就该存下来”。网页不一刀切排除：允许 ≤200 字切片+出处+抓取日期，不存全文（版权与易变）。",
+      "quote": "1. agent读的为什么不加入",
+      "value": "P0"
+    },
+    {
+      "id": "atom_9084c8581eec",
+      "type": "spec",
+      "domain": "knowledge-capture",
+      "content": "捕获文档的存储形态按“可重获性×价值形态”定，三级：①结构化缩减——模板/方案/报告，保留原文 10–30%（标题树+占位符+关键决策；方案留标题树/目标/被否方案/决策理由/风险，弃论证过程与重复表述；报告留标题树/结论/数据口径/图表说明，弃过程流水）；②切片——读到的规范/事实，每条 ≤200 字（主张+出处+抓取日期），切片由“被结论引用的那一段”定义，不是固定 500 字一块的 RAG 切法；③原文 blob——仅限不可重获且无法结构化的材料（客户原始表格/扫描件）100% 保留。决策及理由：内容寻址存全文 blob 从默认降为例外（用户提出改为直接抽重要片段；全文的存储/版权/检索成本高）；不采用纯切片，因为模板价值在整体结构（章节顺序、字段、占位符），切碎即失。风险：切片有损，选错即永久丢失——可重获的留 pointer+hash+date 便于重取重切，不可重获的才 blob 兜底；缩减与切片需人确认，不自动进技能。实现：markdown 解析+规则裁剪为主，需语义判断时才用一次小模型（约 2k token）。",
+      "quote": "不是固定 500 字一块（那是 RAG），而是**被结论引用/复述的那一段**。由使用行为定义，不由文档边界定义。",
+      "value": "P0"
+    },
+    {
+      "id": "atom_10fb7e2764b1",
+      "type": "index",
+      "domain": "knowledge-capture",
+      "content": "文档级知识捕获（artifact 入口）方案：design/ARTIFACT_CAPTURE.md（v2，2026-11-11 写定），design/TRIGGER_PLAN.md 内有指向；含触发信号、三级存储形态、验收标准等章节。v2 相对 v1 的核心变化：读资料从“排除”改为证据/素材/导航三角色；blob 从默认降为例外。截至本批留四个待拍板项：①默认形态（建议：结构可识别→缩减、有引用→切片、否则不存，blob 人工确认后启用）②切片确认方式（批量勾选 vs 逐条）③外部网页切片是否允许（建议允许 ≤200 字+出处+日期）④blob 保留期（丢弃后留 7 天可复原 vs 立即删）。v1 的四项待拍板（blob 放哪、确认频率、模板正文是否进技能正文、是否抓网页全文）在 v2 中不再出现，换为新四项。",
+      "quote": "方案已改成 v2：[ARTIFACT_CAPTURE.md](design/ARTIFACT_CAPTURE.md)。相对 v1 有四处实质变化。",
+      "value": "P2"
+    }
+  ]
+}

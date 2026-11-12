@@ -1,10 +1,10 @@
 /**
  * AutoSkill dsh skill provider（M2 实现）。
  *
- * list(): 每知识域一个 candidate——从 atoms.jsonl 派生 domain 集合，
- *         description 取该域最新原子的内容首段（<500 字符，命中 dsh 目录截断阈值）。
- * get(candidate): 返回该域全文。数据目录形态下从卡片（cards/<category>/<domain>.md）
- *            拼装正文；无卡片时由原子聚合生成；同时记 loaded 使用账（唯一真相源）。
+ * list(): 每知识主题一个 candidate——从 atoms.jsonl 派生 domain 集合，
+ *         description 取该主题最新知识卡片的内容首段（<500 字符，命中 dsh 目录截断阈值）。
+ * get(candidate): 返回该主题全文。数据目录形态下从卡片（cards/<category>/<domain>.md）
+ *            拼装正文；无卡片时由知识卡片聚合生成；同时记 loaded 使用账（唯一真相源）。
  *
  * dsh 校验规则（实测 dsh-skill/lib/index.js validateCandidate）：
  *   name 必须命中 /^[a-z0-9]+(-[a-z0-9]+)*$/（kebab-case）；
@@ -12,7 +12,7 @@
  */
 import type { SkillCandidate, SkillDefinition, SkillProvider } from "@deepseek-ai/dsh-skill";
 import type { HostContext } from "../../core/lib/context.ts";
-import { loadAtoms, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
+import { instructionAtoms, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
 import { usageSummary, appendUsage, type SkillUsage } from "../../core/lib/usage-store.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -65,12 +65,12 @@ export function autoskillProvider(h: HostContext): SkillProvider & { name: strin
 	};
 }
 
-// ---------------- 数据访问（复用 core 原子池） ----------------
+// ---------------- 数据访问（复用 core 知识卡片池） ----------------
 
-/** 域集合：按 atoms.jsonl 的 domain 聚合，value = 该域最新一条原子（描述派生源） */
+/** 主题集合：按 atoms.jsonl 的 domain 聚合，value = 该主题最新一条知识卡片（描述派生源） */
 function collectDomains(dataDir: string): Map<string, KnowledgeAtom> {
 	const map = new Map<string, KnowledgeAtom>();
-	for (const a of loadAtoms()) {
+	for (const a of instructionAtoms()) {
 		const d = sanitizeDomain(a.domain || "general");
 		const prev = map.get(d);
 		if (!prev || (a.extracted_at ?? "") > (prev.extracted_at ?? "")) map.set(d, a);
@@ -78,12 +78,12 @@ function collectDomains(dataDir: string): Map<string, KnowledgeAtom> {
 	return map;
 }
 
-/** 原子 domain 可能含下划线/大写等 dsh 不接受的字符，转 kebab-case */
+/** 知识卡片 domain 可能含下划线/大写等 dsh 不接受的字符，转 kebab-case */
 function sanitizeDomain(d: string): string {
 	return d.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-{2,}/g, "-") || "general";
 }
 
-/** 候选描述：域内原子类型/条数统计 + 最新原子内容首句（≤500 字符） */
+/** 候选描述：主题内知识卡片类型/条数统计 + 最新知识卡片内容首句（≤500 字符） */
 function summarize(latest: KnowledgeAtom, u: SkillUsage | undefined): string {
 	const head = (latest.content ?? "").split("\n")[0].slice(0, 200);
 	const types = latest.atom_type ? `最新切片：${latest.atom_type}` : "";
@@ -91,15 +91,15 @@ function summarize(latest: KnowledgeAtom, u: SkillUsage | undefined): string {
 	return `${head}${types ? `｜${types}` : ""}${usageNote}`.slice(0, 500);
 }
 
-/** 域全文：优先读组卡产物 cards/<category>/<domain>.md，其次从原子聚合 */
+/** 主题全文：优先读组卡产物 cards/<category>/<domain>.md，其次从知识卡片聚合 */
 function domainBody(dataDir: string, domain: string): string | undefined {
 	// 组卡查找：五类目录里找同名 .md
 	for (const cat of Object.keys(CATEGORY_LABELS)) {
 		const p = join(dataDir, "cards", cat, `${domain}.md`);
 		if (existsSync(p)) return readFileSync(p, "utf8");
 	}
-	// 无组卡：原子聚合兜底（保证 provider get 永不静默失败）
-	const atoms = loadAtoms().filter((a) => sanitizeDomain(a.domain || "general") === domain);
+	// 无组卡：知识卡片聚合兜底（保证 provider get 永不静默失败）
+	const atoms = instructionAtoms().filter((a) => sanitizeDomain(a.domain || "general") === domain);
 	if (atoms.length === 0) return undefined;
 	atoms.sort((a, b) => (a.category || "").localeCompare(b.category || "") || (b.extracted_at ?? "").localeCompare(a.extracted_at ?? ""));
 	const sections = new Map<string, KnowledgeAtom[]>();
@@ -108,7 +108,7 @@ function domainBody(dataDir: string, domain: string): string | undefined {
 		if (!sections.has(cat)) sections.set(cat, []);
 		sections.get(cat)!.push(a);
 	}
-	let out = `# ${domain} 知识技能包\n\n> 由 AutoSkill 知识管道自动聚合（dsh provider 实时拼装）：知识原子 → 本正文。\n`;
+	let out = `# ${domain} 知识技能包\n\n> 由 AutoSkill 知识管道自动聚合（dsh provider 实时拼装）：知识卡片 → 本正文。\n`;
 	for (const [cat, list] of [...sections].sort()) {
 		out += `\n## ${CATEGORY_LABELS[cat] ?? cat}\n\n`;
 		for (const a of list) out += `- [${a.atom_type}](${a.atom_id.slice(7)}) ${a.content.split("\n")[0]}\n`;

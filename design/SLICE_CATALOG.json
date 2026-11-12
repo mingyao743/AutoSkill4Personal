@@ -1,7 +1,7 @@
 {
   "$id": "https://auto-skill.local/schemas/slice-catalog.json",
   "title": "AutoSkill Slice Catalog",
-  "description": "5 类知识 × 44 切片清单。atom_type 合法枚举源: 抽取prompt注入本清单约束LLM只产出合法切片, 后置校验atom_type必须命中本清单。与 atom.schema.json 的关系: schema 定原子结构(13基础字段+按category特化), catalog 定 atom_type 取值域。命名约定: atom_type 值 = 'XX切片'(中文原样, 与用户原始清单一致)。schema_fields 指明该切片的内容应填入 atom.schema.json 哪个特化字段; 空数组=无专属特化字段, 由 content 承载。",
+  "description": "5 类知识 × 44 切片清单。atom_type 合法枚举源: 抽取prompt注入本清单约束LLM只产出合法切片, 后置校验atom_type必须命中本清单。与 atom.schema.json 的关系: schema 定原子结构(13基础字段+按category特化), catalog 定 atom_type 取值主题。命名约定: atom_type 值 = 'XX切片'(中文原样, 与用户原始清单一致)。schema_fields 指明该切片的内容应填入 atom.schema.json 哪个特化字段; 空数组=无专属特化字段, 由 content 承载。",
   "version": 1,
   "total_slices": 44,
   "categories": [

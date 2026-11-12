@@ -32,9 +32,22 @@ export interface ChatOptions {
   signal?: AbortSignal; // 外部取消（如 compaction 被用户取消）
 }
 
+/** token 用量（预算控制用；部分网关不返回，字段可缺） */
+export interface ChatUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface ChatResult {
+  text: string;
+  model: string;
+  usage?: ChatUsage;
+}
+
 /** registry 模式注入的调用器抽象（extension 用 ModelRegistry 实现，测试可 mock） */
 export interface ChatCompleter {
-  (opts: ChatOptions): Promise<{ text: string; model: string }>;
+  (opts: ChatOptions): Promise<ChatResult>;
 }
 
 // ---------------- 配置解析 ----------------
@@ -180,7 +193,7 @@ export function activeConfigDescription(): string {
   return "standalone 模式（models.json/env 解析）";
 }
 
-async function chatViaRegistry(opts: ChatOptions): Promise<{ text: string; model: string }> {
+async function chatViaRegistry(opts: ChatOptions): Promise<ChatResult> {
   if (!registry) throw new Error("registry 未注入");
   // 选模型：显式 opts.model > 注入时指定的 preferred > available 第一个
   let found: { provider: string; id: string } | undefined;
@@ -224,7 +237,7 @@ async function chatViaRegistry(opts: ChatOptions): Promise<{ text: string; model
 
 // ---------------- 主入口 ----------------
 
-export async function chatComplete(opts: ChatOptions): Promise<{ text: string; model: string }> {
+export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
   // A. registry 模式：extension 在场（capture_knowledge / compaction 抢救等在线入口）
   if (registry) return chatViaRegistry(opts);
 
@@ -241,6 +254,8 @@ export async function chatComplete(opts: ChatOptions): Promise<{ text: string; m
     temperature: opts.temperature ?? 0.2,
   };
   if (opts.maxTokens != null) body.max_tokens = opts.maxTokens;
+  // 让网关在流末尾回传 usage（不支持的网关会忽略，不影响调用）
+  body.stream_options = { include_usage: true };
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -265,11 +280,11 @@ export async function chatComplete(opts: ChatOptions): Promise<{ text: string; m
         const errText = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
       }
-      const text = await consumeStream(res);
+      const { text, usage } = await consumeStream(res);
       clearTimeout(timer);
       if (onAbort && opts.signal) opts.signal.removeEventListener("abort", onAbort);
       if (!text.trim()) throw new Error("LLM 返回空 content");
-      return { text, model };
+      return { text, model, usage };
     } catch (e) {
       if (onAbort && opts.signal) opts.signal.removeEventListener("abort", onAbort);
       lastErr = e;
@@ -282,12 +297,13 @@ export async function chatComplete(opts: ChatOptions): Promise<{ text: string; m
 }
 
 /** 消费 SSE 流，拼接 content（思考型模型的 reasoning_content 不入正文，但空 content 时回退取它） */
-async function consumeStream(res: Response): Promise<string> {
+async function consumeStream(res: Response): Promise<{ text: string; usage?: ChatUsage }> {
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let content = "";
   let reasoning = "";
+  let usage: ChatUsage | undefined;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -302,10 +318,19 @@ async function consumeStream(res: Response): Promise<string> {
       try {
         const j = JSON.parse(payload) as {
           choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
         };
         const d = j.choices?.[0]?.delta;
         if (d?.content) content += d.content;
         if (d?.reasoning_content) reasoning += d.reasoning_content;
+        // 部分网关在最后一个 chunk 回传 usage（choices 为空）
+        if (j.usage) {
+          usage = {
+            promptTokens: j.usage.prompt_tokens ?? 0,
+            completionTokens: j.usage.completion_tokens ?? 0,
+            totalTokens: j.usage.total_tokens ?? 0,
+          };
+        }
       } catch {
         // 忽略无法解析的行（如 keep-alive 注释）
       }
@@ -313,9 +338,9 @@ async function consumeStream(res: Response): Promise<string> {
   }
   // 兼容 deepseek 风格：正文为空时从 reasoning 中抢救 JSON
   if (!content.trim() && reasoning) {
-    return extractJsonFromText(reasoning) ?? reasoning;
+    return { text: extractJsonFromText(reasoning) ?? reasoning, usage };
   }
-  return content;
+  return { text: content, usage };
 }
 
 /** 从文本中抢救 JSON（剥代码围栏、取首个 { 到末个 }） */

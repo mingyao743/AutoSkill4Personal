@@ -1,8 +1,8 @@
 /**
- * compaction 抢救核心：被压缩区的原子抢救 + 自定义 summary 生成。
+ * compaction 抢救核心：被压缩区的知识卡片抢救 + 自定义 summary 生成。
  * 从 extension 抽出为纯函数（不依赖 @earendil-works/*，可独立测试）。
  *
- * 抢救是唯一免审入口：原子直入 published，confidence 下限 0.7。
+ * 抢救是唯一免审入口：知识卡片直入 published，confidence 下限 0.7。
  */
 import type { MessageEntry, Window } from "./types.ts";
 import { buildWindows } from "./window.ts";
@@ -14,12 +14,12 @@ import { chatComplete } from "./llm.ts";
 
 export interface RescueResult {
   ok: boolean; // 抽取是否完成（false = 全部窗口失败，调用方决定放行默认 compaction）
-  savedAtoms: KnowledgeAtom[]; // published 原子
+  savedAtoms: KnowledgeAtom[]; // published 知识卡片
   windowCount: number;
 }
 
 /**
- * 抢救被压缩区的知识原子。
+ * 抢救被压缩区的知识卡片。
  * @param toSummarize  firstKeptEntryId 之前的 message entries（带真实 id）
  * @param sessionId    8 位短 session id
  */
@@ -36,7 +36,7 @@ export async function rescueAtoms(
   const pending = windows.filter((w: Window) => !done.has(w.window_id));
 
   const catalog = loadCatalog();
-  const systemPrompt = buildSystemPrompt(catalog);
+  const systemPrompt = buildSystemPrompt();
   const knownAtomIds = existingAtomIds();
   const saved: KnowledgeAtom[] = [];
   let failedWindows = 0;
@@ -73,7 +73,7 @@ export async function rescueAtoms(
 
 /**
  * compaction summary：主模型独立调用（流式、不限 max_tokens）。
- * 标准摘要 + 已抢救原子索引（模型可引用 atom_id 知识已存档）。
+ * 标准摘要 + 已抢救知识卡片索引（模型可引用 atom_id 知识已存档）。
  */
 export async function generateCompactionSummary(
   toSummarize: MessageEntry[],
@@ -82,7 +82,7 @@ export async function generateCompactionSummary(
   signal?: AbortSignal,
 ): Promise<string> {
   const atomIndex = atomIds.length
-    ? `\n\n本段对话的知识原子已抽取存档（知识库 atom_id，正文可引用）:\n${atomIds.map((id) => `- ${id}`).join("\n")}`
+    ? `\n\n本段对话的知识卡片已抽取存档（知识库 atom_id，正文可引用）:\n${atomIds.map((id) => `- ${id}`).join("\n")}`
     : "";
   const system =
     "你是会话压缩器。为即将被压缩丢弃的对话生成结构化 markdown 摘要，须保留：主要目标、关键决策及理由、" +

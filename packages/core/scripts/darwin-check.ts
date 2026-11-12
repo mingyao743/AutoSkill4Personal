@@ -50,7 +50,7 @@ const domains = new Set<string>([...deployed, ...Object.keys(st.domainEdits), ..
 
 const dueMap = new Map(darwinDue().map((d) => [d.domain, d.trigger]));
 
-console.log(`待整合原子：${pend.total} 条｜体检阈值：修改 ${th} 次 / 使用 ${useTh} 次 / 拒绝率>50%（样本≥5）\n`);
+console.log(`待整合知识卡片：${pend.total} 条｜体检阈值：修改 ${th} 次 / 使用 ${useTh} 次 / 拒绝率>50%（样本≥5）\n`);
 console.log("skill\t\t加载\t采纳率\t自体检修改\t上次体检\t状态");
 for (const d of [...domains].sort()) {
   const u = usage.get(d) ?? { loaded: 0, accepted: 0, rejected: 0, edited: 0 };
