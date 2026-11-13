@@ -1,5 +1,5 @@
 /**
- * AutoSkill dsh 工具层（M3 实现）：capture_knowledge + kb_harvest。
+ * AutoSkill dsh 工具层（M3 实现）：kb_harvest。
  *
  * 注册形态（实测参照 dsh-tool-goal / dsh-tool-bash 编译产物）：
  *   inject: ["tools"]；ctx.tools.register(defineTool({ name, description, parameters, output, execute }))
@@ -7,8 +7,7 @@
  *   （顶层参数名 → {type, required?, description}，与 dsh-tool-goal 同构）；output 是 {schema, render}。
  *
  * 与 pi 侧对齐的行为（knowledge-capture.ts 单一事实源）：
- *   capture_knowledge —— 单条声明，draft，confidence 0.8，幂等（同 content 跳过）；
- *   kb_harvest        —— detached spawn 抽取 CLI（fire-and-forget），会话文件从 agent.session.id 派生。
+ *   kb_harvest —— detached spawn 抽取 CLI（fire-and-forget），会话文件从 agent.session.id 派生。
  *
  * dsh 宿主差异（v2 宿主独立原则，不读 ~/.pi 下任何路径）：
  *   凭据：进程内调用走 ctx.llm 桥（llm-bridge.ts），凭据在宿主内闭环；
@@ -28,7 +27,7 @@ import { runPipeline } from "../../core/lib/pipeline.ts";
 import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
 import { rememberLlmTarget } from "./llm-bridge.ts";
 import { resolveStandaloneConfig } from "../../core/lib/llm.ts";
-import { captureDeclaredAtom, kbStatusText, type CaptureDeclaration } from "../../core/lib/capture-orchestration.ts";
+import { kbStatusText } from "../../core/lib/capture-orchestration.ts";
 
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -182,46 +181,9 @@ function dshSessionFile(agent: unknown): string | undefined {
 	}
 }
 
-// ---------------- M3 两工具 ----------------
+// ---------------- M3 工具 ----------------
 
 export function registerTools(ctx: Context): void {
-	ctx.tools.register(
-		defineTool({
-			name: "capture_knowledge",
-			description:
-				"声明一条可复用知识卡片存入本地知识库（带类型与价值理由，待后续组装）。" +
-				"在刚发现有价值结论/踩坑/操作方法/模板/资料时调用；不要在批量罗列信息时调用。",
-			parameters: {
-				doc_type: {
-					type: "string",
-					required: true,
-					description:
-						"文档类型（8 选 1）：sop操作SOP / spec口径契约 / template模板骨架 / case案例资料 / postmortem问题复盘 / convention环境约定 / index索引线索 / rubric判据标准",
-				},
-				content: { type: "string", required: true, description: "知识内容：简洁、可独立复用、脱离本对话也能看懂" },
-				why: { type: "string", required: true, description: "价值理由：不存会损失什么（具体后果，≥8 字）" },
-				domain: { type: "string", description: "业务主题 kebab-case（如 gpu-train-ops）；不填记为 general" },
-				atom_type: { type: "string", description: "可选细标签（如 根因切片）" },
-				expires_when: { type: "string", description: "失效条件（convention / index 必填）" },
-				keep_as: { type: "string", description: "case 专用：reference（参考案例）或 data（客户资料/真实事实，需脱敏）" },
-			},
-			output: {
-				schema: { type: "string" },
-				render: (_args, value) => [{ type: "text", text: String(value) }],
-			},
-			async execute(args, exec) {
-				rememberLlmTarget(exec.agent);
-				const sessionId =
-					(exec.agent as { session?: { id?: string } } | undefined)?.session?.id ?? "unknown-session";
-				// 入卡逻辑（建 atom + 准入 + 校验 + 幂等去重）在 core.captureDeclaredAtom
-				return captureDeclaredAtom(args as CaptureDeclaration, {
-					sessionId,
-					extractedBy: "agent-tool-dsh",
-				}).message;
-			},
-		}),
-	);
-
 	ctx.tools.register(
 		defineTool({
 			name: "kb_harvest",

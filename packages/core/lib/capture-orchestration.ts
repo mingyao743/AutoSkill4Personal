@@ -13,13 +13,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import {
-  atomId, appendAtoms, atomsPath, loadAtoms, logError, type KnowledgeAtom,
+  atomsPath, loadAtoms, logError,
 } from "./atom-store.ts";
-import {
-  admissionGate, categoryForType, declaredSource, defaultAtomType, ensureTypeFields,
-  isDocType, keepAsForType, labelForType,
-} from "./admission.ts";
-import { validateAtom } from "./validate.ts";
 
 import { applyPatches, intakeDir } from "./apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "./skill-state.ts";
@@ -44,85 +39,6 @@ export const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
  *  原 30（compaction 抢救兜底时的节流）；抢救通道去掉后降到 5，让管线及时覆盖，
  *  避免消息在被压缩丢弃前未被处理（每轮仍只 1 批/40k，成本可控）。 */
 export const PIPELINE_MIN_PENDING = 5;
-
-/** capture_knowledge 工具入参的 host 无关形状（adapter 用 TypeBox 包一层给宿主） */
-export interface CaptureDeclaration {
-  doc_type: string;
-  content: string;
-  why: string;
-  domain?: string;
-  atom_type?: string;
-  expires_when?: string;
-  keep_as?: string;
-}
-
-export interface CaptureContext {
-  sessionId: string;
-  lastMsgId?: string;
-  /** 入卡来源标记：pi="agent-tool"（默认）、dsh="agent-tool-dsh" */
-  extractedBy?: string;
-}
-
-export interface CaptureResult {
-  ok: boolean;
-  duplicate: boolean;
-  message: string;
-  label?: string;
-  domain?: string;
-  keep_as?: string;
-}
-
-/**
- * 单条声明入卡（原 capture_knowledge execute 主体）。
- * 建 atom → ensureTypeFields → 准入 → 校验 → 幂等去重 → 落库。
- */
-export function captureDeclaredAtom(decl: CaptureDeclaration, ctx: CaptureContext): CaptureResult {
-  if (!isDocType(decl.doc_type)) {
-    return {
-      ok: false, duplicate: false,
-      message: `未入库：doc_type "${decl.doc_type}" 非法。只允许 sop/spec/template/case/postmortem/convention/index/rubric。`,
-    };
-  }
-  const source = declaredSource(ctx.sessionId, ctx.lastMsgId);
-  const atom: KnowledgeAtom = {
-    atom_id: atomId(decl.content, [source]),
-    category: categoryForType(decl.doc_type),
-    atom_type: decl.atom_type ?? defaultAtomType(decl.doc_type),
-    content: decl.content,
-    domain: (decl.domain ?? "").trim() || "general",
-    sources: [source],
-    confidence: 0.8,
-    version: 1,
-    superseded_by: null,
-    refs: [],
-    status: "draft",
-    extracted_at: new Date().toISOString(),
-    extracted_by: ctx.extractedBy ?? "agent-tool",
-    doc_type: decl.doc_type,
-    keep_as: decl.doc_type === "case" && decl.keep_as === "data" ? "data" : keepAsForType(decl.doc_type),
-    why: decl.why,
-    expires_when: decl.expires_when ? decl.expires_when.trim() : null,
-  };
-  ensureTypeFields(atom);
-  const gate = admissionGate(atom, { requireWhy: true });
-  if (!gate.ok) {
-    return { ok: false, duplicate: false, message: `未入库：${gate.reasons.join("；")}` };
-  }
-  const v = validateAtom(atom, []);
-  if (!v.ok) {
-    return { ok: false, duplicate: false, message: `未入库：${v.errors.join("；")}` };
-  }
-  const dup = loadAtoms().some((a) => a.content === atom.content);
-  if (!dup) appendAtoms([atom]);
-  const label = labelForType(decl.doc_type);
-  return {
-    ok: true, duplicate: dup,
-    message: dup
-      ? `已存在，跳过（${label}）`
-      : `已记录 1 条「${label}」→ ${atom.domain || "未标主题"}（草稿，待整合）${atom.keep_as === "data" ? "｜资料层，不进技能正文" : ""}`,
-    label, domain: atom.domain, keep_as: atom.keep_as,
-  };
-}
 
 /** 知识库状态文本（原 kbStats）：atoms 计数 / 待整合 / 体检待触发 / 可编译 / 路径 */
 export function kbStatusText(): string {

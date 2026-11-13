@@ -4,7 +4,7 @@
  * 职责（v2 宿主独立原则）：
  *  - 注入 HostContext（数据目录 <dshHome>/data/autoskill/knowledge，不读 ~/.pi 下任何路径）
  *  - 注册自定义 skill provider 到 ctx.skills（原生 registry 形态，不落 SKILL.md 文件）
- *  - 抽取五入口的 dsh 映射（M3 起：capture_knowledge / kb_harvest 工具）
+ *  - 抽取入口的 dsh 映射（M3 起：kb_harvest 工具）
  *
  * Cordis 约定（实测参照 dsh-skill-filesystem/lib/index.js）：
  *  - apply(ctx, config = {}) —— config 有默认 {}，逐字段从 row.config 读取
@@ -62,7 +62,7 @@ export function apply(ctx: Context, config: Partial<Config> = {}) {
 	// 3. 注册 skill provider（工厂形态，control 由 registry 注入）
 	ctx.skills.registerProvider(() => autoskillProvider(hostContext()!));
 
-	// 4. M3：capture_knowledge / kb_harvest 两工具
+	// 4. M3：kb_harvest 工具
 	registerTools(ctx);
 
 	// 5. 知识管线定时触发：会话文件有新内容才跑（覆盖派生保证不重复消耗）

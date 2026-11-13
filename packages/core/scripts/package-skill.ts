@@ -127,7 +127,7 @@ description: ${description}
 # ${domain} 知识技能包
 
 > 由 AutoSkill 知识管道自动打包（${new Date().toISOString().slice(0, 10)}）：pi 会话 → 知识卡片 → 本技能。
-> 知识卡片带溯源（session id + 消息 id）与置信度；知识可被 capture_knowledge 工具增量补充后重新打包。
+> 知识卡片带溯源（session id + 消息 id）与置信度；知识由管线（增量/收尾）自动抽取沉淀后重新打包。
 
 ${inline
   ? `## 内容（全部内联）\n\n${overview}\n`

@@ -259,7 +259,7 @@ export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
   // A0. 宿主注入的 completer：dsh 等自带 LLM 服务的宿主，凭据在宿主内闭环
   if (injectedCompleter) return injectedCompleter(opts);
 
-  // A. registry 模式：extension 在场（capture_knowledge / compaction 抢救等在线入口）
+  // A. registry 模式：extension 在场（kb_harvest / 增量管线等在线入口）
   if (registry) return chatViaRegistry(opts);
 
   // B. 独立模式：CLI 进程（quit spawn / 手动回填 / assemble / darwin judge）

@@ -304,9 +304,11 @@
 
 | 层 | 文件 | 职责 |
 |---|---|---|
-| **core** | `core/lib/capture-orchestration.ts` | 全部 host 无关编排：`captureDeclaredAtom`（入卡，`extractedBy` 区分 pi/dsh）/ `kbStatusText` / `pendingNoticeText` / `shouldRunIncremental`+`runIncrementalPipeline`（待审≥5）/ `spawnPipeline`+`pipelineSpawnArgs` |
-| **adapter-pi** | `knowledge-capture.ts` | 只留 setHostContext + pi 3 钩子/3 工具注册 + ctx 取 entries/sessionId + spawn + 响应格式化；capture/harvest 全调 core |
-| **adapter-dsh** | `tools.ts` | capture_knowledge execute 调 `captureDeclaredAtom`（extractedBy=agent-tool-dsh）；kbStats 用 core（消除 pi/dsh drift）；只留 dsh 对接（spawn/dispatch/session-read/credential-routing） |
+| **core** | `core/lib/capture-orchestration.ts` | host 无关编排：`kbStatusText` / `pendingNoticeText` / `shouldRunIncremental`+`runIncrementalPipeline`（待审≥5）/ `spawnPipeline`+`pipelineSpawnArgs` |
+| **adapter-pi** | `knowledge-capture.ts` | 只留 setHostContext + pi 钩子/工具注册（session_start/before_agent_start/tool_call/kb_harvest/kb/kb_doctor）+ ctx 取 entries + spawn + 响应格式化 |
+| **adapter-dsh** | `tools.ts` | kb_harvest 工具 + dispatch（spawn/in-process）+ session-read + credential-routing；kbStats 用 core |
+
+**capture_knowledge 工具已去掉**（"agent 主动声明"不成立——实测无系统提示驱动 agent 自发调，实际是用户指认→agent 执行；和 §八 save_intent 用户主动保存同模式，且只存 atom 不存 skill/doc，职责重叠）。删：两 adapter 的 capture_knowledge 工具注册 + core `captureDeclaredAtom`/`CaptureDeclaration`/`CaptureContext`/`CaptureResult` + admission 死函数 `labelForType`/`ensureTypeFields`。`declaredSource` 保留（smoke 用 + 未来 save_intent 复用）。
 
 **compaction 抢救 + quit 终采 + 手动 extract.ts 三条通道已去掉**（入口 5→2）：
 
@@ -316,7 +318,7 @@
 
 补偿：增量阈值 `PIPELINE_MIN_PENDING` 30→5，让管线每轮及时覆盖（1 批/40k），闭合 compaction/quit 去掉后的覆盖缺口。保留 `validate.ts` 枚举 + `compile-skill.ts` rescueRatio 对历史 atom 向后兼容（优雅降级）。
 
-**现余两入口 + 自动增量**：① capture_knowledge 工具（agent 声明）② kb_harvest 工具（detached spawn 收尾）+ before_agent_start 每轮自动增量（待审≥5）。全部 draft + admission，无免审特例。
+**现余一入口 + 自动增量**：① kb_harvest 工具（detached spawn，用户/agent 调，大批量收尾扫）+ before_agent_start 每轮自动增量（待审≥5，1 批/40k，唯一真自动通道）。全部 draft + admission，无免审特例、无旧引擎分叉、无"agent 主动"理想化入口。
 
 **验证**：smoke 31 PASS / 0 FAIL；`extractedBy` 实测 pi=`agent-tool` / dsh=`agent-tool-dsh`；两 adapter 导入只剩宿主依赖 + core 调用。
 

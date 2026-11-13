@@ -116,54 +116,9 @@ export function defaultAtomType(t: DocType): string {
   return DOC_TYPE_SPEC[t].defaultAtomType;
 }
 
-/** 类型的中文名（日志/提示），未知类型原样返回 */
-export function labelForType(t: string | undefined): string {
-  return isDocType(t) ? DOC_TYPE_SPEC[t].label : (t ?? "未分类");
-}
-
 /** 该类型是否必须写失效条件（易腐型） */
 export function requiresExpiry(t: DocType): boolean {
   return t === "convention" || t === "index";
-}
-
-/**
- * 补类型必填字段（声明型入口用）。
- *
- * 抽取路径由 LLM 直接产出结构化字段；`capture_knowledge` 的入参只有
- * content / why / domain，结构化字段必然缺失。这里用 content 兜底：
- * 结构化字段只是渲染辅助，content 才是事实载体，缺字段不该让整条知识被拒。
- * 抽取路径不调用本函数（模型漏字段仍应被拒，那是抽取质量问题）。
- */
-export function ensureTypeFields(atom: KnowledgeAtom): void {
-  if (!isDocType(atom.doc_type)) return;
-  const t = atom.doc_type;
-  const content = String(atom.content ?? "");
-  const firstLine = content.split("\n")[0].trim().slice(0, 80);
-  const fill = (key: string, value: string): void => {
-    const cur = (atom as Record<string, unknown>)[key];
-    if (cur == null || (typeof cur === "string" && cur.trim() === "")) atom[key] = value;
-  };
-  switch (t) {
-    case "sop":
-      fill("step", content);
-      break;
-    case "template":
-      fill("template_name", firstLine);
-      fill("skeleton", content);
-      break;
-    case "case":
-      fill("case_name", firstLine);
-      fill("solution", content);
-      break;
-    case "postmortem":
-      fill("problem", firstLine);
-      fill("root_cause", content);
-      break;
-    default:
-      // spec / convention / index / rubric
-      fill("concept_name", firstLine);
-      fill("definition", content);
-  }
 }
 
 // ---------------- 准入规则 ----------------
@@ -339,8 +294,9 @@ export function admissionGate(atom: Pick<KnowledgeAtom, "content" | "sources" | 
 export const DECLARED_WINDOW_PREFIX = "decl_";
 
 /**
- * agent 主动声明（capture_knowledge）没有"窗口"概念，合成一个可溯源来源。
+ * 声明型来源（无"窗口"概念）合成可溯源来源。
  * window_id 用 decl_ 前缀，extractedWindowIds() 永远不会把它当成已抽过的抽取窗口。
+ * 注：capture_knowledge 工具已去掉，本函数保留供 smoke 及未来声明型入口（如 save_intent）复用。
  */
 export function declaredSource(sessionId: string, messageId?: string): AtomSource {
   const short =

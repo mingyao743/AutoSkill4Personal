@@ -4,15 +4,14 @@
  * 抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
  *   - setHostContext（pi 路径注入）
  *   - 注册 pi 钩子/工具（session_start / before_agent_start / tool_call /
- *     capture_knowledge / kb_harvest / kb / kb_doctor）
+ *     kb_harvest / kb / kb_doctor）
  *   - 从 ctx 取 entries/sessionId（宿主形状）
  *   - detached spawn（进程管理）
  *   - 工具响应格式化
  *
- * 两入口 + 自动增量（触发条件 + 如何抽取，全在 core）：
- *   1. capture_knowledge 工具 → core.captureDeclaredAtom（agent 单条声明）
- *   2. kb_harvest 工具 → core.spawnPipeline（detached，收尾终采）
- *   + before_agent_start 每轮自动增量 → core.runIncrementalPipeline（待审≥5，1 批/40k）
+ * 一入口 + 自动增量（触发条件 + 如何抽取，全在 core）：
+ *   1. kb_harvest 工具 → core.spawnPipeline（detached，收尾终采，用户/agent 调）
+ *   + before_agent_start 每轮自动增量 → core.runIncrementalPipeline（待审≥5，1 批/40k，唯一自动通道）
  *
  * 安装：pi package 机制（仓库根 package.json manifest）；推荐 `pi install ./AutoSkill` 或 git/npm 源。
  * 也可手工在 settings.json 的 extensions 数组写本文件绝对路径（不要符号链接：jiti 从注册路径解析相对导入）。
@@ -20,7 +19,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
@@ -29,9 +27,9 @@ import { coverageReport } from "../../packages/core/lib/coverage.ts";
 import { logError } from "../../packages/core/lib/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/types.ts";
 import {
-  captureDeclaredAtom, kbStatusText, pendingNoticeText,
+  kbStatusText, pendingNoticeText,
   shouldRunIncremental, runIncrementalPipeline, spawnPipeline,
-  applyPatches, type CaptureDeclaration,
+  applyPatches,
 } from "../../packages/core/lib/capture-orchestration.ts";
 
 // adapter-pi 宿主上下文注入（v2：数据目录/凭据基准/skills 输出全部住在 pi 命名空间内）。
@@ -72,31 +70,6 @@ async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
   } finally {
     pipelineRunning = false;
   }
-}
-
-/** 当前会话 id（拿不到时用固定占位：来源仍可追溯，且不会伪造真实窗口） */
-function safeSessionId(ctx: unknown): string {
-  try {
-    const id = (ctx as { sessionManager?: { getSessionId?: () => string } })?.sessionManager?.getSessionId?.();
-    return typeof id === "string" && id ? id : "unknown-session";
-  } catch {
-    return "unknown-session";
-  }
-}
-
-/** 会话里最后一条 message 的 id（声明型来源的溯源锚点） */
-function lastMessageId(ctx: unknown): string | undefined {
-  try {
-    const entries = (ctx as { sessionManager?: { getEntries?: () => Array<{ type?: string; id?: string }> } })
-      ?.sessionManager?.getEntries?.() ?? [];
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      if (e?.type === "message" && typeof e.id === "string") return e.id;
-    }
-  } catch {
-    // 取不到就不带锚点，来源降级到 session 级
-  }
-  return undefined;
 }
 
 /** 项目名（消息可读性用）：当前工作目录名 */
@@ -163,38 +136,7 @@ export default function (pi: ExtensionAPI) {
     return undefined; // 放行，不修改不拦截
   });
 
-  // ---------- 1. capture_knowledge：agent 单条声明 → core.captureDeclaredAtom ----------
-  const CaptureParams = Type.Object({
-    doc_type: StringEnum(["sop", "spec", "template", "case", "postmortem", "convention", "index", "rubric"] as const, {
-      description:
-        "文档类型：sop操作SOP / spec口径契约 / template模板骨架 / case案例资料 / postmortem问题复盘 / convention环境约定 / index索引线索 / rubric判据标准",
-    }),
-    content: Type.String({ description: "知识内容：简洁、可独立复用、脱离本对话也能看懂" }),
-    why: Type.String({ description: "价值理由：不存会损失什么（具体后果，≥8 字）" }),
-    domain: Type.Optional(Type.String({ description: "业务主题 kebab-case（如 gpu-train-ops）；不填记为 general" })),
-    atom_type: Type.Optional(Type.String({ description: "可选细标签（如 根因切片）" })),
-    expires_when: Type.Optional(Type.String({ description: "失效条件（convention / index 必填，如：目录重构后失效）" })),
-    keep_as: Type.Optional(Type.String({ description: "case 专用：reference（参考案例）或 data（客户资料/真实事实，需脱敏）" })),
-  });
-
-  pi.registerTool({
-    name: "capture_knowledge",
-    label: "Capture Knowledge",
-    description:
-      "声明一条可复用知识卡片存入本地知识库（带类型与价值理由，待后续组装）。" +
-      "在刚发现有价值结论/踩坑/操作方法/模板/资料时调用；不要在批量罗列信息时调用。",
-    promptSnippet: "capture_knowledge: 将刚产生的可复用知识（结论/踩坑/SOP/模板/资料）存入知识库",
-    parameters: CaptureParams,
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const r = captureDeclaredAtom(params as CaptureDeclaration, {
-        sessionId: safeSessionId(ctx),
-        lastMsgId: lastMessageId(ctx),
-      });
-      return { content: [{ type: "text", text: r.message }] };
-    },
-  });
-
-  // ---------- 2. kb_harvest：收尾终采（fire-and-forget） ----------
+  // ---------- 1. kb_harvest：收尾终采（fire-and-forget） ----------
   pi.registerTool({
     name: "kb_harvest",
     label: "KB Harvest",
