@@ -2,7 +2,7 @@
  * 一段式抽取：一次 LLM 调用做完 检测 + 成卡 + 定性 + drop 记账。
  *
  * 设计依据 design/ONE_STAGE_EXTRACT.md（§三 输入、§四 输出契约、§五 触发与降级）。
- * 取代旧的两段式（lib/trigger-scan.ts 发现候选 → lib/knowledge-extract.ts 写成卡片）：
+ * 取代已退场删除的旧两段式（扫描发现候选 → 写成卡片）：
  * 两段式实测 855 条消息花掉 入 79k / 出 156k token，而第一段的全部产出只是
  * "哪几条可能有货 + 一句理由"——成本与产出严重不匹配（TRIGGER_PLAN §4.6）。
  *

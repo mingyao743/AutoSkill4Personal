@@ -8,9 +8,6 @@
  *  - veto 边界：模型声明 no_value 或给出空 cards + 完整 drops 是**行使否决权**，
  *    只记 drop 账、推进水位，绝不重跑追问；重跑只针对格式不合格（缺账/JSON 非法）
  *  - 不加锁重复跑：进程内 + 文件锁双保险
- *
- * 旧两段式（trigger-scan 发现候选 → knowledge-extract 写卡片）保留在 `twoStage: true` 后面，
- * 供对比期跑验收（design/ONE_STAGE_EXTRACT.md §八#3）；验收通过后删除。
  */
 import { appendFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,9 +25,6 @@ import {
 import { admissionGate } from "./admission.ts";
 import { validateAtom } from "./validate.ts";
 import { isMechanicalG4 } from "./extract-core.ts";
-// 旧两段式（twoStage 开关）
-import { batchLines, scanBatch, serializeForScan, type ScanLine } from "./trigger-scan.ts";
-import { extractCandidates } from "./knowledge-extract.ts";
 import type { MessageEntry } from "./types.ts";
 
 export type HarnessKind = "pi" | "dsh" | "cli";
@@ -56,11 +50,6 @@ export interface PipelineOptions {
   signal?: AbortSignal;
   /** 只报告不落库（dry-run） */
   dryRun?: boolean;
-  /**
-   * 走旧两段式（trigger-scan → knowledge-extract）。默认 false = 一段式。
-   * 只用于对比期验收，验收通过后连同 lib/trigger-scan.ts 一起删除。
-   */
-  twoStage?: boolean;
   /** 每批带上一批最后 1 轮作只读上下文（默认 true；防跨批的"方案 → 纠正"被切散） */
   overlap?: boolean;
   /** 判重用的已知卡片摘要（默认从卡片池取最近 40 条首行） */
@@ -446,93 +435,6 @@ async function runOneStageBatches(
   }
 }
 
-/** 旧两段式：扫描发现候选 → 抽取成卡片（对比期保留） */
-async function runTwoStageBatches(
-  opts: PipelineOptions,
-  report: PipelineReport,
-  pending: MessageEntry[],
-  known: Set<string>,
-  dryRun: boolean,
-): Promise<void> {
-  const batchChars = opts.batchChars ?? 12_000;
-  const lines: ScanLine[] = serializeForScan(pending);
-  const batches = batchLines(lines, batchChars);
-  report.batches = batches.length;
-  const maxBatches = opts.maxBatches && opts.maxBatches > 0 ? Math.min(opts.maxBatches, batches.length) : batches.length;
-
-  for (let i = 0; i < maxBatches; i++) {
-    if (opts.signal?.aborted) { report.stopped = "aborted"; break; }
-    if (opts.budgetTokens && report.tokensIn + report.tokensOut >= opts.budgetTokens) {
-      report.stopped = "budget";
-      break;
-    }
-    const batch = batches[i];
-    const batchStart = batch[0].id;
-    const batchEnd = batch[batch.length - 1].id;
-
-    // 1) 发现
-    let scan;
-    try {
-      scan = await scanBatch(batch, { model: opts.model, signal: opts.signal });
-    } catch (e) {
-      report.stopped = `trigger-scan failed: ${String(e).slice(0, 120)}`;
-      break;
-    }
-    report.tokensIn += scan.usage?.promptTokens ?? 0;
-    report.tokensOut += scan.usage?.completionTokens ?? 0;
-    report.candidates += scan.candidates.length;
-
-    // 2) 抽取
-    if (scan.candidates.length > 0) {
-      const d = await extractCandidates({
-        sessionId: opts.sessionId,
-        entries: opts.entries,
-        candidates: scan.candidates,
-        model: opts.model,
-        batchSize: Math.max(scan.candidates.length, 1),
-        domainOptions: opts.domainOptions,
-        knownAtomIds: known,
-        signal: opts.signal,
-      });
-      report.tokensIn += d.tokensIn;
-      report.tokensOut += d.tokensOut;
-      report.dropped += d.dropped.length;
-      report.rejected += d.rejected.length;
-      if (d.atoms.length > 0 && !dryRun) {
-        try {
-          appendAtoms(d.atoms);
-        } catch (e) {
-          report.stopped = `write failed: ${String(e).slice(0, 120)}`;
-          break;
-        }
-        report.newAtoms.push(...d.atoms);
-      }
-      report.atoms += d.atoms.length;
-      if (d.stopped) {
-        report.stopped = d.stopped;
-        // 抽取中断：本批不算已审
-        break;
-      }
-    }
-
-    // 3) 整批成功 → 推进水位（dry-run 不写）
-    if (!dryRun) appendReviewed({ session_id: opts.sessionId, start: batchStart, end: batchEnd, kind: "discover" });
-    report.processedBatches++;
-
-    opts.onProgress?.({
-      type: "batch",
-      index: report.processedBatches,
-      total: batches.length,
-      candidates: scan.candidates.length,
-      atoms: report.atoms,
-      dropped: report.dropped,
-      tokensIn: report.tokensIn,
-      tokensOut: report.tokensOut,
-      ms: scan.ms,
-    });
-  }
-}
-
 export async function runPipeline(opts: PipelineOptions): Promise<PipelineReport> {
   const t0 = Date.now();
   const dryRun = opts.dryRun === true;
@@ -591,10 +493,9 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineReport
     return report;
   }
 
-  const stage = opts.twoStage ? "two-stage" : "one-stage";
+  const stage = "one-stage";
   try {
-    if (opts.twoStage) await runTwoStageBatches(opts, report, pending, known, dryRun);
-    else await runOneStageBatches(opts, report, pending, known, atomsPool, dryRun);
+    await runOneStageBatches(opts, report, pending, known, atomsPool, dryRun);
   } finally {
     if (!dryRun) {
       releaseLock(opts.sessionId);

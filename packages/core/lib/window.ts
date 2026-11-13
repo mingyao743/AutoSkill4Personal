@@ -153,7 +153,7 @@ export function buildWindows(
   return windows;
 }
 
-/** 序列化字符量的粗估（与 serialize.ts 的截断规则一致） */
+/** 序列化字符量的粗估（与下方 TOOL_RESULT_TRUNC 截断规则一致） */
 function estimateChars(e: MessageEntry): number {
   const msg = e.message;
   if (msg.role === "toolResult") return TOOL_RESULT_TRUNC + 64;
@@ -174,5 +174,5 @@ function estimateChars(e: MessageEntry): number {
 type TextBlock2 = { type: "text"; text: string };
 type ToolCallBlock2 = { type: string; arguments: Record<string, unknown> | string };
 
-/** 工具结果截断长度，serialize.ts 与此处共用 */
+/** 工具结果截断长度 */
 export const TOOL_RESULT_TRUNC = 1500;

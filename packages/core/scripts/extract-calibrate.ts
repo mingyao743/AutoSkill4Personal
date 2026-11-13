@@ -2,12 +2,12 @@
 /**
  * 一段式抽取校准脚本：对一条真实会话跑完整管线，报告成本、召回、drop 质量与摘要率盲评样本。
  *
- * 取代 trigger-scan-calibrate.ts（那个测的是"扫描召回率"，一段式没有独立扫描这一段）。
+ * 取代已删除的 trigger-scan-calibrate（测两段式扫描召回率，两段式已退场）。
  * 正则时代的 hot_hit / cold_found 指标已归档删除（正则已退场，实验已完成）。
  *
  * 用法：
  *   node --experimental-strip-types packages/core/scripts/extract-calibrate.ts <session.jsonl[.zstd]> \
- *     [--limit N] [--budget N] [--batch-chars 12000] [--model ID] [--two-stage] \
+ *     [--limit N] [--budget N] [--batch-chars 12000] [--model ID] \
  *     [--probe "已知信号文本"]... [--out-dir DIR] [--home ~/.pi/agent]
  *
  * 安全：**永远跑在隔离的临时知识库上**（<out-dir>/kb），绝不写真实知识库。
@@ -53,7 +53,7 @@ const has = (n: string): boolean => flags.has(n);
 
 const sessionPath = positional[0];
 if (!sessionPath) {
-  console.error("用法: extract-calibrate.ts <session.jsonl[.zstd]> [--limit N] [--probe 文本]... [--two-stage]");
+  console.error("用法: extract-calibrate.ts <session.jsonl[.zstd]> [--limit N] [--probe 文本]...");
   process.exit(1);
 }
 
@@ -67,7 +67,6 @@ const batchChars = Number(one("--batch-chars") ?? 12_000);
 const budgetTokens = Number(one("--budget") ?? 0) || undefined;
 const maxBatches = Number(one("--limit") ?? 0) || undefined;
 const model = one("--model");
-const twoStage = has("--two-stage");
 const probes = many("--probe");
 
 // ---------- 读会话 ----------
@@ -91,7 +90,7 @@ const { config, reason } = resolveStandaloneConfig();
 if (!config) { console.error(`无可用 LLM 配置：\n${reason}`); process.exit(1); }
 
 const cov = coverageReport(entries, sessionId);
-console.log(`会话 ${sessionId}｜${twoStage ? "两段式（旧）" : "一段式"}`);
+console.log(`会话 ${sessionId}｜一段式`);
 console.log(`消息 ${cov.total}｜已覆盖 ${cov.covered}｜待审 ${cov.unreviewed}`);
 console.log(`模型 ${model ?? config.model}｜批 ≤${batchChars} 字符${maxBatches ? `｜最多 ${maxBatches} 批` : ""}${budgetTokens ? `｜预算 ${budgetTokens}` : ""}`);
 console.log(`临时知识库 ${dataDir}（隔离，不写真实库）`);
@@ -109,12 +108,11 @@ const report = await runPipeline({
   batchChars,
   maxBatches,
   budgetTokens,
-  twoStage,
   onProgress: (e) => {
     if (e.type !== "batch") return;
     const line = { ts: new Date().toISOString(), batch: e.index, total: e.total, cards: e.candidates, atoms: e.atoms, dropped: e.dropped, inTok: e.tokensIn, outTok: e.tokensOut, ms: e.ms };
     try { appendFileSync(join(outDir, "progress.jsonl"), JSON.stringify(line) + "\n"); } catch { /* 进度落盘失败不影响主流程 */ }
-    console.log(`  批 ${e.index}/${e.total}｜${twoStage ? "候选" : "出卡"} ${e.candidates} 落库 ${e.atoms} 丢弃 ${e.dropped}｜in ${e.tokensIn} out ${e.tokensOut}｜${(e.ms / 1000).toFixed(1)}s`);
+    console.log(`  批 ${e.index}/${e.total}｜出卡 ${e.candidates} 落库 ${e.atoms} 丢弃 ${e.dropped}｜in ${e.tokensIn} out ${e.tokensOut}｜${(e.ms / 1000).toFixed(1)}s`);
   },
 });
 const elapsedMs = Date.now() - t0;
@@ -178,13 +176,11 @@ for (const a of report.newAtoms) byType[String(a.doc_type ?? "?")] = (byType[Str
 const total = report.tokensIn + report.tokensOut;
 console.log(`\n=== 成本 ===`);
 console.log(`token：in ${report.tokensIn} / out ${report.tokensOut} / 合计 ${total}｜耗时 ${(elapsedMs / 1000).toFixed(1)}s｜批 ${report.processedBatches}/${report.batches}`);
-if (!twoStage) {
-  console.log(`压缩比 ${report.compressRatio}｜fail-safe 透传 ${report.compressFallback} 条｜净收益不足不压 ${report.compressNoGain} 条`);
-  console.log(`无价值批 ${report.noValueBatches}｜格式重跑 ${report.retriedBatches}｜申请回读 ${report.needContext}｜drop 账 ${report.dropRows} 行`);
-  console.log(`user 消息兜底补账 ${report.autoDropped} 条（>0 = 模型静默忽略了用户消息）｜批内未交代消息 ${report.unaccounted} 条`);
-  console.log(`卡片被拒导致失去归属、由代码补记 drop 的 user 消息 ${report.orphanedByReject} 条（>0 = 闸门拒掉了带用户消息的卡，账已收口不丢）`);
-  console.log(`带 pending_fields ${report.pendingFieldCards} 张（模型没按类型填特化字段；抽取路径已不强制，仅作观测）｜quote 非逐字 ${report.quoteUnverified} 张（已标记未拦）`);
-}
+console.log(`压缩比 ${report.compressRatio}｜fail-safe 透传 ${report.compressFallback} 条｜净收益不足不压 ${report.compressNoGain} 条`);
+console.log(`无价值批 ${report.noValueBatches}｜格式重跑 ${report.retriedBatches}｜申请回读 ${report.needContext}｜drop 账 ${report.dropRows} 行`);
+console.log(`user 消息兜底补账 ${report.autoDropped} 条（>0 = 模型静默忽略了用户消息）｜批内未交代消息 ${report.unaccounted} 条`);
+console.log(`卡片被拒导致失去归属、由代码补记 drop 的 user 消息 ${report.orphanedByReject} 条（>0 = 闸门拒掉了带用户消息的卡，账已收口不丢）`);
+console.log(`带 pending_fields ${report.pendingFieldCards} 张（模型没按类型填特化字段；抽取路径已不强制，仅作观测）｜quote 非逐字 ${report.quoteUnverified} 张（已标记未拦）`);
 console.log(`\n=== 产出 ===`);
 console.log(`落库卡片 ${report.atoms}｜被拒 ${report.rejected}｜drop ${report.dropped}`);
 console.log("类型分布:", byType);
@@ -192,13 +188,11 @@ const rr = Object.entries(report.rejectReasons).sort((a, b) => b[1] - a[1]);
 const rs = report.rejectSamples ?? {};
 // 显示原始原因而不是归一化 key：key 里的数字被换成 N，看不出实际阈值
 if (rr.length > 0) console.log("拒绝原因:", Object.fromEntries(rr.map(([k, n]) => [rs[k] ?? k, n])));
-if (!twoStage) {
-  console.log(`\n=== drop 账 ===`);
-  console.log(`共 ${ds.total} 条｜按理由:`, ds.byReason);
-  console.log("按判定轴:", ds.byAxis);
-  console.log(`\n=== 摘抄率（正文逐字抄自 msg_range 原文的比例，仅正文 ≥100 字，阈值 ${COPY_RATIO_MAX}）===`);
-  console.log(`样本 ${overlaps.length}｜中位 ${q(0.5).toFixed(2)}｜P90 ${q(0.9).toFixed(2)}｜最大 ${overlaps.length ? overlaps[overlaps.length - 1].ratio.toFixed(2) : "0"}`);
-}
+console.log(`\n=== drop 账 ===`);
+console.log(`共 ${ds.total} 条｜按理由:`, ds.byReason);
+console.log("按判定轴:", ds.byAxis);
+console.log(`\n=== 摘抄率（正文逐字抄自 msg_range 原文的比例，仅正文 ≥100 字，阈值 ${COPY_RATIO_MAX}）===`);
+console.log(`样本 ${overlaps.length}｜中位 ${q(0.5).toFixed(2)}｜P90 ${q(0.9).toFixed(2)}｜最大 ${overlaps.length ? overlaps[overlaps.length - 1].ratio.toFixed(2) : "0"}`);
 for (const r of probeResults) console.log(`探针「${r.probe.slice(0, 24)}」: ${r.hit ? `命中（${r.hitMessages}/${r.messages} 条）` : "**未命中**"}`);
 
 // ---------- 盲评样本（验收 #5：人工判"知识还是摘要"，不带类型以免暗示） ----------
@@ -215,7 +209,7 @@ writeFileSync(join(outDir, "blind-review-sample.jsonl"), blind.map((b) => JSON.s
 const result = {
   ts: new Date().toISOString(),
   session: sessionId,
-  stage: twoStage ? "two-stage" : "one-stage",
+  stage: "one-stage",
   model: model ?? config.model,
   batchChars,
   coverage: cov,
@@ -228,15 +222,15 @@ const result = {
   rejectSamples: report.rejectSamples,
   dropped: report.dropped,
   byType,
-  compress: twoStage ? null : { ratio: report.compressRatio, fallback: report.compressFallback, noGain: report.compressNoGain },
-  oneStage: twoStage ? null : { noValueBatches: report.noValueBatches, retriedBatches: report.retriedBatches, needContext: report.needContext, dropRows: report.dropRows, autoDropped: report.autoDropped, unaccounted: report.unaccounted, pendingFieldCards: report.pendingFieldCards, quoteUnverified: report.quoteUnverified, orphanedByReject: report.orphanedByReject },
-  drops: twoStage ? null : ds,
-  copyRatio: twoStage ? null : { n: overlaps.length, p50: q(0.5), p90: q(0.9), max: overlaps.length ? overlaps[overlaps.length - 1].ratio : 0, threshold: COPY_RATIO_MAX },
+  compress: { ratio: report.compressRatio, fallback: report.compressFallback, noGain: report.compressNoGain },
+  oneStage: { noValueBatches: report.noValueBatches, retriedBatches: report.retriedBatches, needContext: report.needContext, dropRows: report.dropRows, autoDropped: report.autoDropped, unaccounted: report.unaccounted, pendingFieldCards: report.pendingFieldCards, quoteUnverified: report.quoteUnverified, orphanedByReject: report.orphanedByReject },
+  drops: ds,
+  copyRatio: { n: overlaps.length, p50: q(0.5), p90: q(0.9), max: overlaps.length ? overlaps[overlaps.length - 1].ratio : 0, threshold: COPY_RATIO_MAX },
   probes: probeResults,
   stopped: report.stopped ?? null,
   cards: report.newAtoms.map((a) => ({ id: a.atom_id, type: a.doc_type, domain: a.domain, content: a.content, quote: a.source_quote ?? "", value: a.value_tier ?? null })),
 };
-const target = join(outDir, twoStage ? "calibrate-two-stage.json" : "calibrate-one-stage.json");
+const target = join(outDir, "calibrate-one-stage.json");
 writeFileSync(target, JSON.stringify(result, null, 2));
 appendFileSync(join(outDir, "runs.jsonl"), JSON.stringify({
   ts: result.ts, kind: "extract-calibrate", stage: result.stage, session: sessionId,

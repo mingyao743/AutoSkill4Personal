@@ -1,42 +1,13 @@
 /**
- * 抽取引擎核心：LLM 输出 → 解析 → 规范化 → 校验。
- * 离线 CLI 与在线 extension 共用；传输层（fetch 流式）在 lib/llm.ts。
+ * 抽取辅助：旧规范化 helper（normalizeAtom）+ 机械 G4 判定（isMechanicalG4）。
+ *
+ * 历史曾是"抽取引擎核心"（含 extractWindow 整窗引擎），旧引擎去掉后只剩这两个
+ * 被复用的纯函数：normalizeAtom 供 smoke-extract-principles 测类型推导；
+ * isMechanicalG4 被 one-stage 主线（pipeline.ts 准入闸）+ smoke 复用。
  */
-import { buildUserPrompt, type CatalogCategory } from "./prompt.ts";
-import { serializeEntries } from "./serialize.ts";
-import { chatComplete, extractJsonFromText } from "./llm.ts";
-import { validateAtom } from "./validate.ts";
-import {
-  admissionGate,
-  categoryForType,
-  defaultAtomType,
-  isDocType,
-  isKeepAs,
-  keepAsForType,
-} from "./admission.ts";
 import { atomId, type AtomSource, type KnowledgeAtom } from "./atom-store.ts";
+import { categoryForType, defaultAtomType, isDocType, isKeepAs, keepAsForType } from "./admission.ts";
 import type { MessageEntry, Window } from "./types.ts";
-
-export interface ExtractOptions {
-  systemPrompt: string; // buildSystemPrompt() 的产物
-  model?: string; // 覆盖默认主模型
-  extractedBy: string; // offline-pipeline / compaction-rescue / ...
-  status?: string; // 入库状态，默认 draft；compaction 抢救直入 published
-  confidenceFloor?: number; // 抢救场景下限 0.7
-}
-
-/** LLM 输出 → 知识卡片数组（null = 解析失败） */
-export function parseAtoms(text: string): Record<string, unknown>[] | null {
-  const jsonStr = extractJsonFromText(text);
-  if (!jsonStr) return null;
-  try {
-    const obj = JSON.parse(jsonStr) as { atoms?: unknown };
-    if (!Array.isArray(obj.atoms)) return null;
-    return obj.atoms.filter((a) => typeof a === "object" && a !== null) as Record<string, unknown>[];
-  } catch {
-    return null;
-  }
-}
 
 // 各 category 特化字段白名单（schema 全字段保留，只透传清单内的）
 const PASS_FIELDS = new Set([
@@ -127,82 +98,4 @@ export function isMechanicalG4(atom: KnowledgeAtom, entries: MessageEntry[]): bo
     }
   }
   return determinable; // 至少一个可判定区间且全部无接地 → G4
-}
-
-export interface WindowExtractResult {
-  window_id: string;
-  ok: boolean;
-  atoms: KnowledgeAtom[]; // 校验通过（未做幂等过滤）
-  rejected: { atom: KnowledgeAtom; reason: string }[]; // 校验被拒
-  error?: string; // 失败原因（LLM 失败 / JSON 解析失败）
-  rawPreview?: string; // 失败时的原始返回（供 errors.log）
-}
-
-/** 单窗完整抽取：序列化 → LLM → 解析 → 规范化 → 校验。不写库、不去重（调用方决定） */
-export async function extractWindow(
-  w: Window,
-  catalog: CatalogCategory[],
-  opts: ExtractOptions,
-): Promise<WindowExtractResult> {
-  const windowText = serializeEntries(w.entries);
-  const validIds = new Set(w.entries.map((e) => e.id));
-
-  let text: string;
-  try {
-    const res = await chatComplete({
-      system: opts.systemPrompt,
-      user: buildUserPrompt(windowText),
-      model: opts.model,
-    });
-    text = res.text;
-  } catch (err) {
-    return { window_id: w.window_id, ok: false, atoms: [], error: `LLM失败: ${String(err).slice(0, 300)}` };
-  }
-
-  const raws = parseAtoms(text);
-  if (!raws) {
-    return { window_id: w.window_id, ok: false, atoms: [], error: "JSON解析失败", rawPreview: text.slice(0, 500) };
-  }
-
-  const status = opts.status ?? "draft";
-  const floor = opts.confidenceFloor ?? 0;
-  const atoms: KnowledgeAtom[] = [];
-  const rejected: { atom: KnowledgeAtom; reason: string }[] = [];
-  for (const raw of raws) {
-    const atom = normalizeAtom(raw, w, validIds, opts.extractedBy);
-    if (floor > 0 && atom.confidence < floor) atom.confidence = floor;
-    atom.status = status;
-    // LLM 自报 G4：默认不抽（EXTRACTION_PRINCIPLES §五）
-    if (atom.grounding === "G4") {
-      rejected.push({ atom, reason: "自报 G4 纯生成，默认不抽（人的陈述/决策除外）" });
-      continue;
-    }
-    // 准入规则：来源 / 接地 / 敏感 / 价值理由。放在 validate 之前，省一次无谓校验。
-    const gate = admissionGate(atom, {
-      hasGrounding: !isMechanicalG4(atom, w.entries),
-      requireWhy: true,
-    });
-    if (!gate.ok) {
-      rejected.push({ atom, reason: gate.reasons.join(";") });
-      continue;
-    }
-    const v = validateAtom(atom, catalog);
-    if (v.ok) atoms.push(atom);
-    else rejected.push({ atom, reason: v.errors.join(";") });
-  }
-  return { window_id: w.window_id, ok: true, atoms, rejected };
-}
-
-/** 过滤掉已存在知识卡片（幂等）；被拒知识卡片已在 result.rejected 里 */
-export function acceptedOnly(
-  result: WindowExtractResult,
-  knownAtomIds: Set<string>,
-): KnowledgeAtom[] {
-  const accepted: KnowledgeAtom[] = [];
-  for (const a of result.atoms) {
-    if (knownAtomIds.has(a.atom_id)) continue; // 幂等跳过（不算拒）
-    accepted.push(a);
-    knownAtomIds.add(a.atom_id);
-  }
-  return accepted;
 }

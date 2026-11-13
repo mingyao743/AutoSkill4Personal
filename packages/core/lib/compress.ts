@@ -2,7 +2,7 @@
  * 一段式抽取的输入构造：分级压缩 + fail-safe 断言 + 轮次对齐分批。
  *
  * 设计依据 design/ONE_STAGE_EXTRACT.md §二（批次怎么切）、§三（分级压缩）。
- * 相对旧 serializeForScan（lib/trigger-scan.ts）的修订（2026-11-11）：
+ * 相对旧 serializeForScan 的修订（2026-11-11，两段式 scan 已退场）：
  *  - 工具参数：完整命令行 / 代码块 ≤600 字（旧：一律前 80 字）
  *  - 工具结果：stderr 与报错行全文 ≤800 字（旧：只留首行）
  *  - stdout / 重复 JSON 参数继续压（体积大头、价值低）
