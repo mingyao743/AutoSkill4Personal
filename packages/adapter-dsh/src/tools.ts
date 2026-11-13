@@ -21,20 +21,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import type { Context } from "@deepseek-ai/cordis";
-import { setHostContext, hostContext } from "../../core/lib/context.ts";
-import { atomId, appendAtoms, loadAtoms, logError, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
+import { hostContext } from "../../core/lib/context.ts";
+import { loadAtoms, logError } from "../../core/lib/atom-store.ts";
 import { parseSession } from "../../core/lib/window.ts";
 import { runPipeline } from "../../core/lib/pipeline.ts";
 import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
 import { rememberLlmTarget } from "./llm-bridge.ts";
-import {
-  admissionGate, categoryForType, declaredSource, defaultAtomType, ensureTypeFields, isDocType, keepAsForType, labelForType,
-} from "../../core/lib/admission.ts";
-import { validateAtom } from "../../core/lib/validate.ts";
 import { resolveStandaloneConfig } from "../../core/lib/llm.ts";
-import { pendingSummary } from "../../core/lib/skill-state.ts";
-import { compileDue } from "../../core/lib/compile-skill.ts";
-import { lastCompileHashes } from "../../core/lib/compile-state.ts";
+import { captureDeclaredAtom, kbStatusText, type CaptureDeclaration } from "../../core/lib/capture-orchestration.ts";
 
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -178,23 +172,6 @@ export function latestSessionFile(): string | undefined {
 	return latestSessionFileIn(configuredDshHome);
 }
 
-/** 后台收集日志的知识卡片计数（对齐 pi 侧 kbStats） */
-function kbStats(): string {
-	const h = hostContext();
-	const atoms = loadAtoms();
-	const draft = atoms.filter((a) => a.status === "draft").length;
-	const published = atoms.filter((a) => a.status === "published").length;
-	const pend = pendingSummary();
-	const compile = compileDue(atoms, lastCompileHashes(), { limit: 10_000 }).length;
-	return (
-		`atoms: ${atoms.length}（draft ${draft} / published ${published}）\n` +
-		`待整合: ${pend.total}` +
-		(pend.total > 0 ? `（${Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ")}）` : "") +
-		`\n可编译主题: ${compile}` +
-		`\n路径: ${h?.dataDir ? join(h.dataDir, "atoms.jsonl") : "未注入"}`
-	);
-}
-
 /** 从 agent 会话句柄派生 dsh 会话文件路径（<dshHome>/sessions/<cwd-slug>/<session-id>/session.v4.jsonl[.zstd]） */
 function dshSessionFile(agent: unknown): string | undefined {
 	try {
@@ -234,47 +211,14 @@ export function registerTools(ctx: Context): void {
 				render: (_args, value) => [{ type: "text", text: String(value) }],
 			},
 			async execute(args, exec) {
-				const a = args as {
-					doc_type: string; content: string; why: string; domain?: string; atom_type?: string; expires_when?: string; keep_as?: string;
-				};
-				if (!isDocType(a.doc_type)) {
-					return `未入库：doc_type "${a.doc_type}" 非法。只允许 sop/spec/template/case/postmortem/convention/index/rubric。`;
-				}
 				rememberLlmTarget(exec.agent);
 				const sessionId =
 					(exec.agent as { session?: { id?: string } } | undefined)?.session?.id ?? "unknown-session";
-				const source = declaredSource(sessionId);
-				const atom: KnowledgeAtom = {
-					atom_id: atomId(a.content, [source]),
-					category: categoryForType(a.doc_type),
-					atom_type: a.atom_type ?? defaultAtomType(a.doc_type),
-					content: a.content,
-					domain: (a.domain ?? "").trim() || "general",
-					sources: [source],
-					confidence: 0.8,
-					version: 1,
-					superseded_by: null,
-					refs: [],
-					status: "draft",
-					extracted_at: new Date().toISOString(),
-					extracted_by: "agent-tool-dsh",
-					doc_type: a.doc_type,
-					keep_as: a.doc_type === "case" && a.keep_as === "data" ? "data" : keepAsForType(a.doc_type),
-					why: a.why,
-					expires_when: a.expires_when ? a.expires_when.trim() : null,
-				};
-				// 结构化字段用 content 兜底（工具入参没有 step/concept_name 等字段）
-				ensureTypeFields(atom);
-				// 与 pi 侧同一条准入规则：声明型入口不再免检
-				const gate = admissionGate(atom, { requireWhy: true });
-				if (!gate.ok) return `未入库：${gate.reasons.join("；")}`;
-				const v = validateAtom(atom, []);
-				if (!v.ok) return `未入库：${v.errors.join("；")}`;
-				const dup = loadAtoms().some((x) => x.content === atom.content);
-				if (!dup) appendAtoms([atom]);
-				return dup
-					? `已存在，跳过（${labelForType(a.doc_type)}）`
-					: `已记录 1 条「${labelForType(a.doc_type)}」→ ${atom.domain || "未标主题"}（草稿，待整合）${atom.keep_as === "data" ? "｜资料层，不进技能正文" : ""}`;
+				// 入卡逻辑（建 atom + 准入 + 校验 + 幂等去重）在 core.captureDeclaredAtom
+				return captureDeclaredAtom(args as CaptureDeclaration, {
+					sessionId,
+					extractedBy: "agent-tool-dsh",
+				}).message;
 			},
 		}),
 	);
@@ -304,7 +248,7 @@ export function registerTools(ctx: Context): void {
 				const project = process.cwd().split(/[\\/]/).filter(Boolean).pop() ?? "当前项目";
 				const located = sessionFile ? "" : "\n未定位到会话文件，抽取器需手动指定。";
 				const via = route === "in-process" ? "宿主进程内，走 ctx.llm" : "后台独立进程";
-				return Promise.resolve(`已开始发现并抽取「${project}」会话的知识（${via}，只处理未审消息）。${located}\n${kbStats()}${note}`);
+				return Promise.resolve(`已开始发现并抽取「${project}」会话的知识（${via}，只处理未审消息）。${located}\n${kbStatusText()}${note}`);
 			},
 		}),
 	);
