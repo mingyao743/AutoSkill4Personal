@@ -1,17 +1,19 @@
 /**
- * 捕获编排：把"何时抽取 / 单条声明如何入卡 / 状态与提示如何生成 / 后台管线如何 spawn"
+ * 捕获编排：把"何时抽取 / 状态与提示如何生成 / 后台管线如何 spawn"
  * 这类 host 无关的编排逻辑从 adapter 抽到 core。adapter 只剩宿主对接
  * （注册钩子、从 ctx 取 entries/sessionId、spawn 进程、格式化工具响应）。
+ *
+ * 统一触发（全 agent 一份逻辑）：每 N 个未审 user 轮抽一次。
+ *  - shouldExtractOnTurn：stateless 数未审 user 轮，>= N 才抽。
+ *  - runScheduledExtraction：多批把累积 N 轮一次抽完。
+ *  - adapter 只 hook 宿主的"轮次推进"事件（pi=before_agent_start；dsh=定时器轮询）→ 调本模块。
  *
  * 设计原则（见 PLATFORM_INTEGRATION_REVIEW §分层）：
  *  - adapter 只对接各 agent 运行时；具体如何抽取/编排，全在 core。
  *  - 本模块函数纯数据进出（entries/sessionId/params），不触碰任何宿主 ctx。
- *  - 行为与原 adapter-pi/knowledge-capture.ts 逐一致（行为保持重构）。
  */
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { homedir } from "node:os";
 import {
   atomsPath, loadAtoms, logError,
 } from "./atom-store.ts";
@@ -21,11 +23,10 @@ import { darwinDue, pendingSummary, darwinThreshold } from "./skill-state.ts";
 import { compileDue } from "./compile-skill.ts";
 import { lastCompileHashes } from "./compile-state.ts";
 import { runPipeline, type PipelineReport } from "./pipeline.ts";
-import { coverageReport } from "./coverage.ts";
+import { coveredIds } from "./coverage.ts";
 import type { MessageEntry } from "./types.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-export const PIPELINE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "pipeline.ts");
 export const ASSEMBLE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "assemble.ts");
 export const PACKAGE_SKILL_CLI = join(REPO_ROOT, "packages", "core", "scripts", "package-skill.ts");
 export const APPLY_CLI = join(REPO_ROOT, "packages", "core", "scripts", "apply-patches.ts");
@@ -35,10 +36,12 @@ export const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
 export const COMPILE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "compile-skills.ts");
 export const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
 
-/** 增量管线节流：待审消息少于本数不跑。
- *  原 30（compaction 抢救兜底时的节流）；抢救通道去掉后降到 5，让管线及时覆盖，
- *  避免消息在被压缩丢弃前未被处理（每轮仍只 1 批/40k，成本可控）。 */
-export const PIPELINE_MIN_PENDING = 5;
+/** 统一触发：每 N 个未审 user 轮抽一次（全 agent 共用一份逻辑）。
+ *  - turn = 一条 user 消息；未审 = 该 msg id 未被任何 atom 的 sources 覆盖。
+ *  - stateless：从 entries + coverage 派生，不依赖计数器文件，adapter/进程重启不丢。
+ *  - 可配：env AUTOSKILL_EXTRACT_EVERY_N_TURNS 覆盖。
+ *  - 命中后 runScheduledExtraction 多批把累积 N 轮一次抽完（不是 1 批）。 */
+export const EXTRACT_EVERY_N_TURNS = Number(process.env.AUTOSKILL_EXTRACT_EVERY_N_TURNS ?? 30);
 
 /** 知识库状态文本（原 kbStats）：atoms 计数 / 待整合 / 体检待触发 / 可编译 / 路径 */
 export function kbStatusText(): string {
@@ -94,49 +97,30 @@ export function pendingNoticeText(): string | undefined {
   return parts.length ? parts.join("\n\n") : undefined;
 }
 
-/** 增量管线是否该跑（原 maybeRunPipeline 的阈值判断） */
-export function shouldRunIncremental(entries: MessageEntry[], sessionId: string): { run: boolean; unreviewed: number } {
-  if (entries.length === 0) return { run: false, unreviewed: 0 };
-  const cov = coverageReport(entries, sessionId);
-  return { run: cov.unreviewed >= PIPELINE_MIN_PENDING, unreviewed: cov.unreviewed };
+/** 数本会话未审的 user 消息（=未抽取的轮数）。stateless：entries + coverage 派生。 */
+export function unreviewedUserTurns(entries: MessageEntry[], sessionId: string): number {
+  if (entries.length === 0) return 0;
+  const covered = coveredIds(entries, sessionId);
+  return entries.filter((e) => e.message?.role === "user" && e.id && !covered.has(e.id)).length;
 }
 
-/** 跑一轮增量管线（1 批 / 40k 预算，原 maybeRunPipeline 的 runPipeline 调用） */
-export async function runIncrementalPipeline(
+/** 每 N 轮闸：未审 user 轮 >= N 才抽。返回 {extract, pending, threshold} 供 adapter 决策/日志。 */
+export function shouldExtractOnTurn(
+  entries: MessageEntry[], sessionId: string, n: number = EXTRACT_EVERY_N_TURNS,
+): { extract: boolean; pending: number; threshold: number } {
+  const pending = unreviewedUserTurns(entries, sessionId);
+  return { extract: pending >= n && n > 0, pending, threshold: n };
+}
+
+/** 命中后：多批把累积的 N 轮一次抽完（批次随 N 缩放，不是 1 批）。
+ *  N=30 → 3 批 / 120k；上限 8 批 / 240k 防失控。 */
+export async function runScheduledExtraction(
   sessionId: string, entries: MessageEntry[], harness: "pi" | "dsh" = "pi",
+  n: number = EXTRACT_EVERY_N_TURNS,
 ): Promise<PipelineReport> {
-  return runPipeline({ sessionId, entries, harness, maxBatches: 1, budgetTokens: 40_000 });
-}
-
-/** detached spawn 知识管线 CLI 的参数（原 spawnPipeline 的 spawn 配置）；进程 spawn 本身仍由 adapter 做 */
-export function pipelineSpawnArgs(sessionFile: string, opts: { maxBatches?: number; budget?: number } = {}): {
-  args: string[]; env: Record<string, string>; cwd: string;
-} {
-  const dataDir = process.env.KB_DIR ?? join(homedir(), ".pi", "agent", "data", "autoskill", "knowledge");
-  const home = join(homedir(), ".pi", "agent");
-  return {
-    args: [
-      "--experimental-strip-types", PIPELINE_CLI, sessionFile,
-      "--data-dir", dataDir, "--home", home,
-      "--mode", "incremental",
-      "--max-batches", String(opts.maxBatches ?? 3),
-      "--budget", String(opts.budget ?? 60_000),
-    ],
-    env: {
-      ...process.env,
-      AUTOSKILL_DATA_DIR: dataDir,
-      AUTOSKILL_HOME: home,
-      PI_MODELS_PATH: process.env.PI_MODELS_PATH ?? "",
-    },
-    cwd: REPO_ROOT,
-  };
-}
-
-/** detached spawn（adapter 便利封装：直接 spawn + unref；仍属 host 进程管理，留本模块供 adapter 调） */
-export function spawnPipeline(sessionFile: string, opts: { maxBatches?: number; budget?: number } = {}): void {
-  const { args, env, cwd } = pipelineSpawnArgs(sessionFile, opts);
-  const child = spawn(process.execPath, args, { detached: true, stdio: "ignore", cwd, env });
-  child.unref();
+  const maxBatches = Math.min(8, Math.ceil(Math.max(1, n) / 10));
+  const budgetTokens = Math.min(240_000, maxBatches * 40_000);
+  return runPipeline({ sessionId, entries, harness, maxBatches, budgetTokens });
 }
 
 export { applyPatches, logError };

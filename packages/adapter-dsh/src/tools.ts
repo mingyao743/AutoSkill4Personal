@@ -1,33 +1,29 @@
 /**
- * AutoSkill dsh 工具层（M3 实现）：kb_harvest。
+ * AutoSkill dsh 抽取调度层：dispatchPipeline（每 N 轮闸 + 选路 spawn/in-process）。
  *
- * 注册形态（实测参照 dsh-tool-goal / dsh-tool-bash 编译产物）：
- *   inject: ["tools"]；ctx.tools.register(defineTool({ name, description, parameters, output, execute }))
- *   defineTool 来自 @deepseek-ai/dsh-tools；parameters 是 property-map 形状
- *   （顶层参数名 → {type, required?, description}，与 dsh-tool-goal 同构）；output 是 {schema, render}。
+ * dsh 无 per-turn 钩子（cordis 只暴露 tools/skills/llm/effect），抽取触发靠
+ * index.ts 定时器轮询会话文件 mtime → 调本模块 dispatchPipeline。
+ * dispatchPipeline 内部走 core.shouldExtractOnTurn（未审 user 轮≥N=30 才抽），
+ * 与 pi 侧 before_agent_start 调的是同一份 core 逻辑。
  *
- * 与 pi 侧对齐的行为（knowledge-capture.ts 单一事实源）：
- *   kb_harvest —— detached spawn 抽取 CLI（fire-and-forget），会话文件从 agent.session.id 派生。
+ * 选路（凭据闭环）：
+ *   standalone 凭据可用 → detached spawn CLI（隔离、不占宿主事件循环）；
+ *   否则 → 进程内管线（走 ctx.llm 桥，凭据在宿主内闭环，无 standalone 配置也能跑）。
  *
  * dsh 宿主差异（v2 宿主独立原则，不读 ~/.pi 下任何路径）：
- *   凭据：进程内调用走 ctx.llm 桥（llm-bridge.ts），凭据在宿主内闭环；
- *   spawn 子进程时才退回环境变量链（OPENAI_API_KEY / AUTOSKILL_*），无凭据时自动改用进程内。
  *   会话文件是 zstd v4 格式（<dshHome>/sessions/<cwd-slug>/<id>/session.v4.jsonl[.zstd]）。
  */
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { Context } from "@deepseek-ai/cordis";
 import { hostContext } from "../../core/lib/context.ts";
 import { loadAtoms, logError } from "../../core/lib/atom-store.ts";
 import { parseSession } from "../../core/lib/window.ts";
 import { runPipeline } from "../../core/lib/pipeline.ts";
 import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
-import { rememberLlmTarget } from "./llm-bridge.ts";
 import { resolveStandaloneConfig } from "../../core/lib/llm.ts";
-import { kbStatusText } from "../../core/lib/capture-orchestration.ts";
+import { shouldExtractOnTurn, EXTRACT_EVERY_N_TURNS } from "../../core/lib/capture-orchestration.ts";
 
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -35,8 +31,8 @@ const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", 
 const PIPELINE_CLI = join(MONOREPO_ROOT, "packages", "core", "scripts", "pipeline.ts");
 
 /**
- * detached spawn 知识管线 CLI（覆盖派生 → 抽取触发机制 → 知识抽取）。
- * 与 pi 侧 spawnPipeline 同构；--no-home 保证绝不读 ~/.pi 的模型配置。
+ * detached spawn 知识管线 CLI（standalone 凭据可用时的选路）。
+ * --no-home 保证绝不读 ~/.pi 的模型配置；凭据走环境变量链。
  */
 export function spawnPipelineDsh(sessionFile: string, opts: { maxBatches?: number; budgetTokens?: number } = {}): void {
 	const h = hostContext();
@@ -106,20 +102,32 @@ export async function runPipelineInProcess(
 }
 
 /**
- * 选路：standalone 凭据可用 → detached spawn（隔离、不占宿主事件循环）；
- * 否则 → 进程内管线（走 ctx.llm 桥）。返回实际走的路由，便于测试与诊断。
+ * 选路 + 每 N 轮闸：读会话文件 → shouldExtractOnTurn（未审 user 轮≥N 才抽）→
+ * standalone 凭据可用 → detached spawn；否则 → 进程内管线（走 ctx.llm 桥）。
+ * 不到 N 轮返回 "skip"（不烧 token）。返回实际路由，便于诊断。
+ *
+ * 这是 dsh 侧唯一的抽取触发入口（无 per-turn 钩子，由 index.ts 定时器轮询调本函数）。
  */
 export function dispatchPipeline(
 	sessionFile: string,
 	opts: { maxBatches?: number; budgetTokens?: number } = {},
-): "spawn" | "in-process" | "none" {
+): "spawn" | "in-process" | "skip" | "none" {
 	const h = hostContext();
 	if (!h?.dataDir || !sessionFile) return "none";
+	// 每 N 轮闸：读会话 → 数未审 user 轮 → 不到 N 不抽（core 统一逻辑，与 pi 同一份）
+	const lines = readSessionLines(sessionFile);
+	const entries = parseSession(lines);
+	if (entries.length === 0) return "skip";
+	const sessionId = sessionIdFromLines(lines, sessionFile);
+	if (!shouldExtractOnTurn(entries, sessionId).extract) return "skip";
+	// 命中：N-scaled 批次（N=30 → 3 批/120k；与 pi runScheduledExtraction 同口径）
+	const maxBatches = opts.maxBatches ?? Math.min(8, Math.ceil(Math.max(1, EXTRACT_EVERY_N_TURNS) / 10));
+	const budgetTokens = opts.budgetTokens ?? Math.min(240_000, maxBatches * 40_000);
 	if (resolveStandaloneConfig().config) {
-		spawnPipelineDsh(sessionFile, opts);
+		spawnPipelineDsh(sessionFile, { maxBatches, budgetTokens });
 		return "spawn";
 	}
-	void runPipelineInProcess(sessionFile, opts).catch((e) => {
+	void runPipelineInProcess(sessionFile, { maxBatches, budgetTokens }).catch((e) => {
 		logError(`[autoskill] 进程内管线失败: ${String(e).slice(0, 300)}`);
 	});
 	return "in-process";
@@ -181,36 +189,3 @@ function dshSessionFile(agent: unknown): string | undefined {
 	}
 }
 
-// ---------------- M3 工具 ----------------
-
-export function registerTools(ctx: Context): void {
-	ctx.tools.register(
-		defineTool({
-			name: "kb_harvest",
-			description:
-				"后台启动本会话的知识抽取（独立进程，不阻塞对话）。" +
-				"在任务收尾、或对话中积累了大量未捕获知识时调用；重复调用幂等（已抽窗口自动跳过）。",
-			parameters: {},
-			output: {
-				schema: { type: "string" },
-				render: (_args, value) => [{ type: "text", text: String(value) }],
-			},
-			execute(args, exec) {
-				rememberAgent(exec.agent);
-				rememberLlmTarget(exec.agent);
-				const sessionFile = dshSessionFile(exec.agent) ?? latestSessionFile();
-				// 凭据可用 → 独立进程；否则 → 宿主进程内（走 ctx.llm 桥，凭据在宿主内闭环）
-				const route = sessionFile ? dispatchPipeline(sessionFile, { maxBatches: 2, budgetTokens: 40_000 }) : "none";
-				// 凭据可用性预检（对齐 pi 侧失败尽早暴露；进程内路径由桥负责，不再报 standalone 缺配置）
-				const { config, reason } = resolveStandaloneConfig();
-				const note = route === "spawn" && !config
-					? `\n[抽取凭据预检] 当前环境无可用 LLM 配置，后台抽取将失败：\n${reason}`
-					: "";
-				const project = process.cwd().split(/[\\/]/).filter(Boolean).pop() ?? "当前项目";
-				const located = sessionFile ? "" : "\n未定位到会话文件，抽取器需手动指定。";
-				const via = route === "in-process" ? "宿主进程内，走 ctx.llm" : "后台独立进程";
-				return Promise.resolve(`已开始发现并抽取「${project}」会话的知识（${via}，只处理未审消息）。${located}\n${kbStatusText()}${note}`);
-			},
-		}),
-	);
-}

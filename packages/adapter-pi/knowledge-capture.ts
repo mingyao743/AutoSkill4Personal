@@ -3,15 +3,14 @@
  *
  * 抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
  *   - setHostContext（pi 路径注入）
- *   - 注册 pi 钩子/工具（session_start / before_agent_start / tool_call /
- *     kb_harvest / kb / kb_doctor）
+ *   - 注册 pi 钩子/命令（session_start / before_agent_start / tool_call / kb / kb_doctor）
  *   - 从 ctx 取 entries/sessionId（宿主形状）
  *   - detached spawn（进程管理）
  *   - 工具响应格式化
  *
- * 一入口 + 自动增量（触发条件 + 如何抽取，全在 core）：
- *   1. kb_harvest 工具 → core.spawnPipeline（detached，收尾终采，用户/agent 调）
- *   + before_agent_start 每轮自动增量 → core.runIncrementalPipeline（待审≥5，1 批/40k，唯一自动通道）
+ * 统一触发（全 agent 一份逻辑，core 定义）：
+ *   + before_agent_start（user 轮）→ core.shouldExtractOnTurn（未审 user 轮≥N=30）→ core.runScheduledExtraction（多批）
+ *   无手动工具（capture_knowledge/kb_harvest 已去），纯自动每 N 轮。
  *
  * 安装：pi package 机制（仓库根 package.json manifest）；推荐 `pi install ./AutoSkill` 或 git/npm 源。
  * 也可手工在 settings.json 的 extensions 数组写本文件绝对路径（不要符号链接：jiti 从注册路径解析相对导入）。
@@ -28,7 +27,7 @@ import { logError } from "../../packages/core/lib/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/types.ts";
 import {
   kbStatusText, pendingNoticeText,
-  shouldRunIncremental, runIncrementalPipeline, spawnPipeline,
+  shouldExtractOnTurn, runScheduledExtraction,
   applyPatches,
 } from "../../packages/core/lib/capture-orchestration.ts";
 
@@ -58,11 +57,11 @@ async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
   const all = sm?.getEntries?.() ?? [];
   const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string") as unknown as MessageEntry[];
   if (!id || entries.length === 0) return;
-  if (!shouldRunIncremental(entries, id).run) return;
+  if (!shouldExtractOnTurn(entries, id).extract) return;
 
   pipelineRunning = true;
   try {
-    const report = await runIncrementalPipeline(id, entries, "pi");
+    const report = await runScheduledExtraction(id, entries, "pi");
     const ui = (ctx as { ui?: { notify?: (m: string, type?: string) => void } }).ui;
     if (report.atoms > 0) ui?.notify?.(`[知识管道] 知识抽取 ${report.atoms} 条知识（${reason}）`, "info");
   } catch (e) {
@@ -70,11 +69,6 @@ async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
   } finally {
     pipelineRunning = false;
   }
-}
-
-/** 项目名（消息可读性用）：当前工作目录名 */
-function projectName(): string {
-  return process.cwd().split("/").filter(Boolean).pop() ?? "当前项目";
 }
 
 export default function (pi: ExtensionAPI) {
@@ -101,7 +95,7 @@ export default function (pi: ExtensionAPI) {
 
   // ---------- 0b. before_agent_start：首个用户轮注入提示（pending + darwin 体检） ----------
   pi.on("before_agent_start", async (event, ctx) => {
-    // 用户轮开始前异步推进管线（core 内 30 条待审阈值节流）
+    // 用户轮开始前：core 每 N 轮闸（未审 user 轮≥30 才抽，多批一次清）
     if (event.messageType === "user") void maybeRunPipeline(ctx, "turn");
     if (noticed || event.messageType !== "user") return;
     noticed = true;
@@ -134,27 +128,6 @@ export default function (pi: ExtensionAPI) {
       // 审计失败绝不阻塞工具调用
     }
     return undefined; // 放行，不修改不拦截
-  });
-
-  // ---------- 1. kb_harvest：收尾终采（fire-and-forget） ----------
-  pi.registerTool({
-    name: "kb_harvest",
-    label: "KB Harvest",
-    description:
-      "后台启动本会话的知识抽取（独立进程，不阻塞对话）。" +
-      "在任务收尾、或对话中积累了大量未捕获知识时调用；重复调用幂等（已抽窗口自动跳过）。",
-    promptSnippet: "kb_harvest: 后台抽取本会话知识卡片（收尾终采）",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      spawnPipeline(sessionFile, { maxBatches: 2, budget: 40_000 });
-      return {
-        content: [{
-          type: "text",
-          text: `已开始发现并抽取「${projectName()}」会话的知识（后台运行，只处理未审消息）。\n${kbStatusText()}`,
-        }],
-      };
-    },
   });
 
   // ---------- /kb：知识库状态（最小实现） ----------

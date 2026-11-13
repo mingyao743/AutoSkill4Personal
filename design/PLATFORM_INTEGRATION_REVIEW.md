@@ -318,7 +318,10 @@
 
 补偿：增量阈值 `PIPELINE_MIN_PENDING` 30→5，让管线每轮及时覆盖（1 批/40k），闭合 compaction/quit 去掉后的覆盖缺口。保留 `validate.ts` 枚举 + `compile-skill.ts` rescueRatio 对历史 atom 向后兼容（优雅降级）。
 
-**现余一入口 + 自动增量**：① kb_harvest 工具（detached spawn，用户/agent 调，大批量收尾扫）+ before_agent_start 每轮自动增量（待审≥5，1 批/40k，唯一真自动通道）。全部 draft + admission，无免审特例、无旧引擎分叉、无"agent 主动"理想化入口。
+**统一触发（全 agent 一份逻辑，无手动工具）**：每 N=30 个未审 user 轮抽一次（`core.shouldExtractOnTurn` stateless 数未审 user 消息，≥N 才抽；`runScheduledExtraction` 多批 N-scaled 一次清）。capture_knowledge + kb_harvest 两手动工具全去。
+- **pi**：`before_agent_start(user)` → `shouldExtractOnTurn` → `runScheduledExtraction`（事件驱动，第 N 轮即时触发）。
+- **dsh**：无 per-turn 钩子（cordis 只暴露 tools/skills/llm/effect）→ 定时器（默认 120s）轮询会话文件 mtime → `dispatchPipeline`（内含同一份 `shouldExtractOnTurn` 闸 + N-scaled 批次；未到 N 轮返回 "skip" 不烧 token）。最坏比 pi 晚一个 interval。
+- N 可配（env `AUTOSKILL_EXTRACT_EVERY_N_TURNS`）；dsh 间隔可配（config `pipeline.intervalSeconds`）。全部 draft + admission，无免审特例、无旧引擎分叉、无"agent 主动"理想化入口、无手动工具第二触发。
 
 **验证**：smoke 31 PASS / 0 FAIL；`extractedBy` 实测 pi=`agent-tool` / dsh=`agent-tool-dsh`；两 adapter 导入只剩宿主依赖 + core 调用。
 
