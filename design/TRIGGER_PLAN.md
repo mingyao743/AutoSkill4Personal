@@ -303,7 +303,7 @@ compaction → 只抽未覆盖缺口 → 知识卡片(origin=rescue, quarantine)
 | `adapter-pi/knowledge-capture.ts` | 每轮后触发抽取触发机制（异步）；退出时知识抽取；harvest 只抽未覆盖 |
 | `adapter-dsh/src/compaction.ts` | ~~兜底逻辑同上~~（已删除：抢救通道去掉） |
 | `adapter-dsh/src/index.ts` | 定时抽取触发机制 + 定时知识抽取（无逐轮钩子） |
-| `scripts/extract.ts` | 默认 `--uncovered-only` |
+| `scripts/extract.ts` | ~~默认 `--uncovered-only`~~（已删除：旧 extractWindow 引擎，和 `pipeline.ts --mode backfill`(one-stage) 重复，离线 harvest 交给 pipeline.ts CLI） |
 
 ## 十四、迁移
 

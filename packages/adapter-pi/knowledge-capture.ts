@@ -1,19 +1,18 @@
 /**
  * knowledge-capture extension（P0 在线入口，V2 方案）—— 纯宿主对接层。
  *
- * 五入口的抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
+ * 抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
  *   - setHostContext（pi 路径注入）
  *   - 注册 pi 钩子/工具（session_start / before_agent_start / tool_call /
- *     session_before_compact / session_shutdown / capture_knowledge / kb_harvest / kb / kb_doctor）
+ *     capture_knowledge / kb_harvest / kb / kb_doctor）
  *   - 从 ctx 取 entries/sessionId（宿主形状）
  *   - detached spawn（进程管理）
  *   - 工具响应格式化
  *
- * 四入口（触发条件 + 如何抽取，全在 core）：
- *   1. capture_knowledge 工具 → core.captureDeclaredAtom
- *   2. kb_harvest 工具 → core.spawnPipeline（detached）
- *   3. session_shutdown(quit) → core.spawnPipeline（全量终采）
- *   4. 手动回填 → scripts/extract.ts（不经本 extension）
+ * 两入口 + 自动增量（触发条件 + 如何抽取，全在 core）：
+ *   1. capture_knowledge 工具 → core.captureDeclaredAtom（agent 单条声明）
+ *   2. kb_harvest 工具 → core.spawnPipeline（detached，收尾终采）
+ *   + before_agent_start 每轮自动增量 → core.runIncrementalPipeline（待审≥5，1 批/40k）
  *
  * 安装：pi package 机制（仓库根 package.json manifest）；推荐 `pi install ./AutoSkill` 或 git/npm 源。
  * 也可手工在 settings.json 的 extensions 数组写本文件绝对路径（不要符号链接：jiti 从注册路径解析相对导入）。
@@ -22,7 +21,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
 import { appendUsage } from "../../packages/core/lib/usage-store.ts";
@@ -214,15 +213,6 @@ export default function (pi: ExtensionAPI) {
         }],
       };
     },
-  });
-
-  // ---------- 3. session_shutdown(quit)：终采 ----------
-  pi.on("session_shutdown", async (event: SessionShutdownEvent, ctx) => {
-    if (event.reason !== "quit") return; // reload/new/resume/fork 不是会话终点，跳过
-    const sessionFile = ctx.sessionManager.getSessionFile();
-    if (!sessionFile) return;
-    spawnPipeline(sessionFile, { maxBatches: 3, budget: 60_000 });
-    if (ctx.hasUI) ctx.ui.notify(`[知识管道] 已开始整理「${projectName()}」会话的知识（后台）`, "info");
   });
 
   // ---------- /kb：知识库状态（最小实现） ----------

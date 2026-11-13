@@ -33,7 +33,6 @@ import { captureDeclaredAtom, kbStatusText, type CaptureDeclaration } from "../.
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
 const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-const EXTRACT_CLI = join(MONOREPO_ROOT, "packages", "core", "scripts", "extract.ts"); // 手动回填用
 const PIPELINE_CLI = join(MONOREPO_ROOT, "packages", "core", "scripts", "pipeline.ts");
 
 /**

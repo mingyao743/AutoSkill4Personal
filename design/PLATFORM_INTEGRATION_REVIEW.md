@@ -308,7 +308,15 @@
 | **adapter-pi** | `knowledge-capture.ts` | 只留 setHostContext + pi 3 钩子/3 工具注册 + ctx 取 entries/sessionId + spawn + 响应格式化；capture/harvest 全调 core |
 | **adapter-dsh** | `tools.ts` | capture_knowledge execute 调 `captureDeclaredAtom`（extractedBy=agent-tool-dsh）；kbStats 用 core（消除 pi/dsh drift）；只留 dsh 对接（spawn/dispatch/session-read/credential-routing） |
 
-**compaction 抢救通道已去掉**：原 5 入口里"唯一免审入口"（`session_before_compact`→`rescueAtoms` published floor 0.7）整条删除——它是最脆的宿主耦合（dsh compaction 引擎 ×3 形状约束）+ 唯一跳过 admission 的特例。删：core `compaction-rescue.ts`、adapter-dsh `compaction.ts`、adapter-pi `session_before_compact` hook、cordis.patch `autoskill-compaction` 条目、`@deepseek-ai/dsh-compaction-basic` 依赖。补偿：增量阈值 `PIPELINE_MIN_PENDING` 30→5，让管线及时覆盖（每轮仍 1 批/40k），避免消息被压缩丢弃前未处理。保留 `validate.ts` 枚举 + `compile-skill.ts` rescueRatio 对历史 atom 的向后兼容（优雅降级）。入口由 5→4。
+**compaction 抢救 + quit 终采 + 手动 extract.ts 三条通道已去掉**（入口 5→2）：
+
+- **compaction 抢救**（`session_before_compact`→`rescueAtoms` published floor 0.7）：唯一免审入口 + 最脆宿主耦合（dsh compaction 引擎 ×3 形状约束）。删 core `compaction-rescue.ts`、adapter-dsh `compaction.ts`、adapter-pi hook、cordis.patch `autoskill-compaction`、`@deepseek-ai/dsh-compaction-basic` 依赖。
+- **quit 终采**（pi `session_shutdown(quit)`→`spawnPipeline`）：pi 专属，dsh 本无；去掉让 pi 对齐 dsh（都靠增量 + kb_harvest）。最后一轮的覆盖由增量阈值兜（见下）。
+- **手动 extract.ts**（旧 `extractWindow` 引擎）：和 `pipeline.ts <session> --mode backfill`（one-stage）重复且引擎落后，删。离线 harvest 交给 pipeline.ts CLI。
+
+补偿：增量阈值 `PIPELINE_MIN_PENDING` 30→5，让管线每轮及时覆盖（1 批/40k），闭合 compaction/quit 去掉后的覆盖缺口。保留 `validate.ts` 枚举 + `compile-skill.ts` rescueRatio 对历史 atom 向后兼容（优雅降级）。
+
+**现余两入口 + 自动增量**：① capture_knowledge 工具（agent 声明）② kb_harvest 工具（detached spawn 收尾）+ before_agent_start 每轮自动增量（待审≥5）。全部 draft + admission，无免审特例。
 
 **验证**：smoke 31 PASS / 0 FAIL；`extractedBy` 实测 pi=`agent-tool` / dsh=`agent-tool-dsh`；两 adapter 导入只剩宿主依赖 + core 调用。
 
