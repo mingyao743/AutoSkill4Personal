@@ -4,10 +4,27 @@
   "private": true,
   "description": "AutoSkill monorepo：知识管道引擎（core）+ 宿主适配层（adapter-pi / adapter-dsh）。一个安装只属于一个宿主。",
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "kb-status": "node --experimental-strip-types packages/core/scripts/darwin-check.ts",
     "compile-skills": "node --experimental-strip-types packages/core/scripts/compile-skills.ts",
-    "smoke": "node --experimental-strip-types packages/core/scripts/smoke-one-stage.ts && node --experimental-strip-types packages/core/scripts/smoke-skill-compiler.ts && node --experimental-strip-types packages/core/scripts/smoke-turn-trigger.ts && node --experimental-strip-types packages/adapter-dsh/test/smoke-dsh.ts"
+    "smoke": "node --experimental-strip-types packages/adapter-dsh/test/smoke-dsh.ts",
+    "test:qdoc": "node --experimental-strip-types packages/core/test/run-all.ts",
+    "ow": "node --experimental-strip-types packages/cli/src/main.ts",
+    "install-skill": "node --experimental-strip-types scripts/install-skill.ts",
+    "check-skill": "node --experimental-strip-types scripts/install-skill.ts --check"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "packages/adapter-pi/knowledge-capture.ts"
+    ],
+    "skills": [
+      "agent-skills"
+    ]
   }
 }

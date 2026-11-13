@@ -1,14 +1,8 @@
-# The dsh-autoskill bundle patch: AutoSkill knowledge pipeline engine.
-# Applied after the profile's bundle layers; later user rows still override by id.
+# dsh-autoskill bundle patch：知识管道（定时触发 + 进程内编译）
 #
-# Two plugins from one bundle (exports subpath shape, precedent:
-# dsh-plugin-manager/tools in dsh-base's own patch):
-#   autoskill            — main entry: skills (custom provider) + tools (capture_knowledge / kb_harvest)
-#   autoskill-assemble-timer — ./assemble-timer subpath: periodic cards rebuild
-#                          (opt-in via config.enabled; off by default)
+# 只有一个插件。旧版本的 `autoskill-assemble-timer`（atoms.jsonl → 知识卡片组装）
+# 属于旧 autoskill 架构，已随新方案移除——新方案的技能来源是 `agent-skills/` 目录
+# 与平台同步（`ow sync`），不再从 atoms 派生。
 - insert:
     - id: autoskill
       name: dsh-autoskill
-
-    - id: autoskill-assemble-timer
-      name: dsh-autoskill/assemble-timer

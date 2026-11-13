@@ -1,0 +1,8 @@
+# qdoc vault 运行态（不入库）
+.qdoc/.ow/
+.qdoc/_raw/
+.qdoc/_staging/
+.qdoc/.publish/
+
+# 系统垃圾
+.DS_Store

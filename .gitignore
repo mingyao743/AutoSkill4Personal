@@ -7,4 +7,8 @@ knowledge-archive-*/
 node_modules/
 
 # 校准/编译草稿产物（可重生成，不入库）
-.tmp-*/
+.tmp-*
+
+# qdoc vault：整个目录都是运行态，知识页已发布到平台，不入库
+# （模板在 templates/vault/，仓库不保留自己编译出来的产物）
+.qdoc/

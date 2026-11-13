@@ -1,0 +1,13 @@
+{
+  "name": "@autoskill/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "qdoc 知识库 CLI：init / capture / publish / query / sync / review / status / link",
+  "bin": {
+    "ow": "./src/main.ts"
+  },
+  "scripts": {
+    "ow": "node --experimental-strip-types src/main.ts"
+  }
+}

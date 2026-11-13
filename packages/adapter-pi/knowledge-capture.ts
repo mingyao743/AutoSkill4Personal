@@ -25,6 +25,9 @@ import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
 import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
 import { logError } from "../../packages/core/lib/base/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
+import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   kbStatusText, pendingNoticeText,
   shouldExtractOnTurn, runScheduledExtraction,
@@ -71,6 +74,62 @@ async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
   }
 }
 
+/** 编译内核技能目录（仓库内 agent-skills/ow-compiler） */
+const COMPILER_SKILL_DIR = join(
+  dirname(fileURLToPath(import.meta.url)), "..", "..", "agent-skills", "ow-compiler",
+);
+
+/**
+ * 走 `core/trigger/cycle.ts` 的统一编排（与 dsh 侧 `runCycle` 同一个函数）。
+ *
+ * pi 有 `before_agent_start` 逐轮钩子，所以轮次判定是**精确的**——不像 dsh 要等定时器。
+ * 但闸门逻辑完全一致：30 轮 → 信号门 → 机器锁 → vault 锁 → 编译。
+ *
+ * 会话事件的 seq：pi 的 entry 没有 seq，用「消息在活跃分支里的序号」充当（单调即可，
+ * 窗口切分与水位只要求单调，不要求等于宿主内部编号）。
+ */
+async function maybeRunCycle(ctx: unknown, reason: string): Promise<void> {
+  const sm = (ctx as {
+    sessionManager?: {
+      getSessionId?: () => string;
+      getEntries?: () => Array<{ type?: string; id?: string; message?: { role?: string } }>;
+      getCwd?: () => string;
+    };
+  })?.sessionManager;
+  const sessionId = sm?.getSessionId?.();
+  const all = sm?.getEntries?.() ?? [];
+  if (!sessionId || all.length === 0) return;
+
+  const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string");
+  if (entries.length === 0) return;
+
+  const withSeq = entries.map((e, i) => ({ ...e, seq: i }));
+  const events = withSeq.map((e) => ({
+    type: "message",
+    seq: e.seq,
+    message: e.message,
+    id: e.id,
+  }));
+
+  const outcome = await maybeCompile({
+    agent: "pi",
+    sessionId,
+    events,
+    entries: withSeq as unknown as Array<MessageEntry & { seq: number }>,
+    cwd: sm?.getCwd?.() ?? process.cwd(),
+    skillDir: COMPILER_SKILL_DIR,
+    autoInit: process.env.OW_AUTO_INIT === "1",
+  });
+
+  const ui = (ctx as { ui?: { notify?: (m: string, type?: string) => void } }).ui;
+  if (outcome.status === "compiled") {
+    ui?.notify?.(
+      `[知识库] 编译完成：新增 ${outcome.report.pages_created}、更新 ${outcome.report.pages_updated}（${reason}）`,
+      "info",
+    );
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   // ---------- 0a. session_start：注入 ModelRegistry + 消费提案队列 ----------
   let noticed = false; // 每会话只注入一次提示
@@ -95,8 +154,15 @@ export default function (pi: ExtensionAPI) {
 
   // ---------- 0b. before_agent_start：首个用户轮注入提示（pending + darwin 体检） ----------
   pi.on("before_agent_start", async (event, ctx) => {
-    // 用户轮开始前：core 每 N 轮闸（未审 user 轮≥30 才抽，多批一次清）
-    if (event.messageType === "user") void maybeRunPipeline(ctx, "turn");
+    // 用户轮开始前：两条管线并行
+    //  a) 旧的 atoms 抽取（未审 user 轮≥30 才抽，多批一次清）
+    //  b) 新的 vault 编译（30 轮闸 → 信号门 → 两级锁 → 进程内编译）
+    if (event.messageType === "user") {
+      void maybeRunPipeline(ctx, "turn");
+      void maybeRunCycle(ctx, "turn").catch((e) => {
+        logError(`cycle(turn) 失败: ${String(e).slice(0, 200)}`);
+      });
+    }
     if (noticed || event.messageType !== "user") return;
     noticed = true;
     const notice = pendingNoticeText();

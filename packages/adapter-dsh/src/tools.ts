@@ -1,145 +1,147 @@
 /**
- * AutoSkill dsh 抽取调度层：dispatchPipeline（每 N 轮闸 + 选路 spawn/in-process）。
+ * AutoSkill dsh 抽取调度层：轮询会话文件 → 满窗口就编译（进程内，走 ctx.llm）。
  *
- * dsh 无 per-turn 钩子（cordis 只暴露 tools/skills/llm/effect），抽取触发靠
- * index.ts 定时器轮询会话文件 mtime → 调本模块 dispatchPipeline。
- * dispatchPipeline 内部走 core.shouldExtractOnTurn（未审 user 轮≥N=30 才抽），
- * 与 pi 侧 before_agent_start 调的是同一份 core 逻辑。
+ * dsh 无 per-turn 钩子（cordis 只暴露 tools/skills/llm/effect），所以触发靠
+ * index.ts 的定时器轮询会话文件 mtime，变了就调本模块的 `runCycle`。
+ * 30 轮闸、信号门、两级锁、编译全在 `core/trigger/cycle.ts` 里——与 pi 侧
+ * `before_agent_start` 调的是**同一份**编排，两边行为不会分叉。
  *
- * 选路（凭据闭环）：
- *   standalone 凭据可用 → detached spawn CLI（隔离、不占宿主事件循环）；
- *   否则 → 进程内管线（走 ctx.llm 桥，凭据在宿主内闭环，无 standalone 配置也能跑）。
+ * 旧的 `dispatchPipeline` / `spawnPipelineDsh`（spawn 子进程抽取到 atoms）已随
+ * 旧 autoskill 架构删除：那条路把产物落到 atoms.jsonl，而新方案产出的是
+ * `.qdoc/` 知识页。留着只会产生两条互不相认的产物线。
  *
  * dsh 宿主差异（v2 宿主独立原则，不读 ~/.pi 下任何路径）：
  *   会话文件是 zstd v4 格式（<dshHome>/sessions/<cwd-slug>/<id>/session.v4.jsonl[.zstd]）。
  */
-import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostContext } from "../../core/lib/base/context.ts";
-import { loadAtoms, logError } from "../../core/lib/base/atom-store.ts";
 import { parseSession } from "../../core/lib/extract/window.ts";
-import { runPipeline } from "../../core/lib/extract/pipeline.ts";
 import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
-import { resolveStandaloneConfig } from "../../core/lib/base/llm.ts";
-import { shouldExtractOnTurn, EXTRACT_EVERY_N_TURNS } from "../../core/lib/capture-orchestration.ts";
+import { maybeCompile } from "../../core/lib/trigger/cycle.ts";
+import { readSessionLines, sessionIdFromPath, isSubagentSession } from "../../core/lib/trigger/session-file.ts";
 
-/** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */
-const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-const PIPELINE_CLI = join(MONOREPO_ROOT, "packages", "core", "scripts", "pipeline.ts");
 
-/**
- * detached spawn 知识管线 CLI（standalone 凭据可用时的选路）。
- * --no-home 保证绝不读 ~/.pi 的模型配置；凭据走环境变量链。
- */
-export function spawnPipelineDsh(sessionFile: string, opts: { maxBatches?: number; budgetTokens?: number } = {}): void {
-	const h = hostContext();
-	if (!h?.dataDir || !sessionFile) return;
-	const child = spawn(
-		process.execPath,
-		[
-			"--experimental-strip-types", PIPELINE_CLI, sessionFile,
-			"--data-dir", h.dataDir,
-			"--no-home",
-			"--mode", "incremental",
-			"--max-batches", String(opts.maxBatches ?? 2),
-			"--budget", String(opts.budgetTokens ?? 40_000),
-		],
-		{
-			detached: true,
-			stdio: "ignore",
-			cwd: MONOREPO_ROOT,
-			env: {
-				...process.env,
-				AUTOSKILL_DATA_DIR: h.dataDir,
-				OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
-				OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? "",
-				AUTOSKILL_PROVIDER: process.env.AUTOSKILL_PROVIDER ?? "",
-				AUTOSKILL_MODEL: process.env.AUTOSKILL_MODEL ?? "",
-			},
-		},
-	);
-	child.unref();
-}
-
-/**
- * 进程内管线（凭据在宿主里的唯一可行路径）。
- *
- * 为什么需要：spawn 出来的 CLI 是独立进程，看不到宿主 ctx.llm，只能走 standalone 链
- * （dsh → 只剩 OPENAI_API_KEY）。没配环境变量时 spawn 会静默失败，知识永远抽不出来。
- * 这条路径在宿主进程里跑，chatComplete 走注入的 ctx.llm 桥；异步 fire-and-forget，
- * 不阻塞工具调用（代价是宿主退出时可能截断，覆盖水位保证下次接着抽）。
- */
-export async function runPipelineInProcess(
-	sessionFile: string,
-	opts: { maxBatches?: number; budgetTokens?: number } = {},
-): Promise<void> {
-	const h = hostContext();
-	if (!h?.dataDir || !sessionFile) return;
-	const lines = readSessionLines(sessionFile);
-	const entries = parseSession(lines);
-	if (entries.length === 0) return;
-	const sessionId = sessionIdFromLines(lines, sessionFile);
-
-	// 主题清单：知识卡片池高频主题，防模型自造主题（与 pipeline CLI 同口径）
-	const counts = new Map<string, number>();
-	for (const a of loadAtoms()) {
-		const d = (a.domain || "").trim();
-		if (d) counts.set(d, (counts.get(d) ?? 0) + 1);
+/** 原始事件数组（未归一，给 indexTurns 数 turn/end 用） */
+function parseRawEvents(lines: string[]): Array<Record<string, unknown>> {
+	const out: Array<Record<string, unknown>> = [];
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		try {
+			out.push(JSON.parse(line) as Record<string, unknown>);
+		} catch {
+			/* 损坏行跳过 */
+		}
 	}
-	const domainOptions = [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 30).map(([d]) => d);
-
-	await runPipeline({
-		sessionId,
-		entries,
-		harness: "dsh",
-		maxBatches: opts.maxBatches ?? 2,
-		budgetTokens: opts.budgetTokens ?? 40_000,
-		domainOptions,
-	});
+	return out;
 }
 
 /**
- * 选路 + 每 N 轮闸：读会话文件 → shouldExtractOnTurn（未审 user 轮≥N 才抽）→
- * standalone 凭据可用 → detached spawn；否则 → 进程内管线（走 ctx.llm 桥）。
- * 不到 N 轮返回 "skip"（不烧 token）。返回实际路由，便于诊断。
+ * **新主路径**：走 `trigger/cycle.ts` 的统一编排（方案 §5.5）。
  *
- * 这是 dsh 侧唯一的抽取触发入口（无 per-turn 钩子，由 index.ts 定时器轮询调本函数）。
+ * 与旧的 `dispatchPipeline` 的区别：
+ *  - 轮次判定改用 `indexTurns`（剔注入消息 + 剔空轮），不再用 `unreviewedUserTurns`
+ *  - 水位线存 vault（`.ow/state.json`），不靠 atom sources 覆盖判定
+ *  - 编译走 `compiler/run.ts` 进程内调 `ctx.llm`，产出落到 `.qdoc/` 知识页
+ *  - 有 vault 锁 + 机器锁两级仲裁
+ *
+ * 旧的 `dispatchPipeline` 仍保留（抽取到 atoms 的旧管线），但定时器已改调本函数。
  */
-export function dispatchPipeline(
-	sessionFile: string,
-	opts: { maxBatches?: number; budgetTokens?: number } = {},
-): "spawn" | "in-process" | "skip" | "none" {
+export async function runCycle(sessionFile: string): Promise<string> {
 	const h = hostContext();
 	if (!h?.dataDir || !sessionFile) return "none";
-	// 每 N 轮闸：读会话 → 数未审 user 轮 → 不到 N 不抽（core 统一逻辑，与 pi 同一份）
+
+	// 子代理会话不参与知识编译（它们是被派去做单件事的，产出没有独立价值）
+	if (isSubagentSession(sessionFile)) return "subagent-skip";
+
 	const lines = readSessionLines(sessionFile);
-	const entries = parseSession(lines);
-	if (entries.length === 0) return "skip";
+	const events = parseRawEvents(lines);
+	if (events.length === 0) return "skip";
+
 	const sessionId = sessionIdFromLines(lines, sessionFile);
-	if (!shouldExtractOnTurn(entries, sessionId).extract) return "skip";
-	// 命中：N-scaled 批次（N=30 → 3 批/120k；与 pi runScheduledExtraction 同口径）
-	const maxBatches = opts.maxBatches ?? Math.min(8, Math.ceil(Math.max(1, EXTRACT_EVERY_N_TURNS) / 10));
-	const budgetTokens = opts.budgetTokens ?? Math.min(240_000, maxBatches * 40_000);
-	if (resolveStandaloneConfig().config) {
-		spawnPipelineDsh(sessionFile, { maxBatches, budgetTokens });
-		return "spawn";
-	}
-	void runPipelineInProcess(sessionFile, { maxBatches, budgetTokens }).catch((e) => {
-		logError(`[autoskill] 进程内管线失败: ${String(e).slice(0, 300)}`);
+	const cwd = cwdFromEvents(events) ?? process.cwd();
+	// 归一后的消息：复用 core 的 parseSession（它已处理 dsh 三事件形状），
+	// 再按「产生消息的事件 seq」逐条对齐——窗口切分与水位都靠 seq 定位，不能拿序号顶替。
+	const entries = attachSeqs(parseSession(lines), events);
+
+	const outcome = await maybeCompile({
+		agent: "dsh",
+		sessionId,
+		events,
+		entries,
+		cwd,
+		skillDir: COMPILER_SKILL_DIR,
+		autoInit: autoInitVault || process.env.OW_AUTO_INIT === "1",
 	});
-	return "in-process";
+	return outcome.status;
 }
 
-/** 会话文件行流：dsh v4 是 zstd 压缩的 jsonl（与 core CLI 同一解压口径） */
-function readSessionLines(p: string): string[] {
-	if (p.endsWith(".zstd")) {
-		return execFileSync("zstd", ["-d", "-c", p], { maxBuffer: 512 * 1024 * 1024 }).toString("utf8").split("\n");
+/** 仓库根：packages/adapter-dsh/src/tools.ts → 上三级 */
+const MONOREPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+/** 编译内核技能目录（仓库内 agent-skills/ow-compiler） */
+const COMPILER_SKILL_DIR = join(MONOREPO_ROOT, "agent-skills", "ow-compiler");
+
+/** 从 session 头取 cwd（决定 vault 位置） */
+function cwdFromEvents(events: Array<Record<string, unknown>>): string | undefined {
+	for (const e of events) {
+		if (e.type === "session" && typeof e.cwd === "string") return e.cwd;
 	}
-	return readFileSync(p, "utf8").split("\n");
+	return undefined;
 }
+
+/**
+ * 给归一后的 entry 补 seq。
+ *
+ * parseSession 按事件顺序产出，而 dsh 的 seq 只出现在原始事件里。两条路：
+ *  1. entry.id 能对上事件（user/assistant 的 message.id、tool/result 的 callId）
+ *  2. 对不上时按「同类事件的出现顺序」对齐（顺序一致，只是不认 id）
+ */
+function attachSeqs(
+	entries: Array<{ id: string }>,
+	events: Array<Record<string, unknown>>,
+): Array<{ id: string; seq: number } & Record<string, unknown>> {
+	// 建 id → seq 索引
+	const byId = new Map<string, number>();
+	const seqs: number[] = [];
+	for (const e of events) {
+		const seq = typeof e.seq === "number" ? e.seq : undefined;
+		if (seq === undefined) continue;
+		if (!MESSAGE_EVENT_TYPES.has(String(e.type))) continue;
+		seqs.push(seq);
+		const id = messageIdOf(e);
+		if (id) byId.set(id, seq);
+	}
+	let cursor = 0;
+	return entries.map((entry) => {
+		const hit = byId.get(entry.id);
+		if (hit !== undefined) return { ...entry, seq: hit };
+		// 退化：按顺序取下一个消息事件的 seq
+		const seq = seqs[cursor] ?? seqs[seqs.length - 1] ?? 0;
+		cursor += 1;
+		return { ...entry, seq };
+	});
+}
+
+/** 会产生 MessageEntry 的事件类型 */
+const MESSAGE_EVENT_TYPES = new Set(["message", "user/message", "assistant/message", "tool/result"]);
+
+/** 从事件里取消息 id（dsh 的三种形状） */
+function messageIdOf(e: Record<string, unknown>): string | undefined {
+	const data = e.data as Record<string, unknown> | undefined;
+	if (!data) return undefined;
+	const direct = data.id;
+	if (typeof direct === "string") return direct;
+	const msg = data.message as Record<string, unknown> | undefined;
+	if (typeof msg?.id === "string") return msg.id;
+	const callId = data.callId ?? msg?.toolCallId;
+	if (typeof callId === "string") return callId;
+	return undefined;
+}
+
+
 
 /** 会话 id：优先 session 事件里的真实 id，退化为文件名（与 core CLI 一致） */
 function sessionIdFromLines(lines: string[], sessionFile: string): string {
@@ -162,6 +164,12 @@ let configuredDshHome: string | undefined;
 
 export function setDshHome(home: string): void {
 	configuredDshHome = home;
+}
+
+/** 自动初始化 `.qdoc/`（由 index.ts 的 config.pipeline.autoInit 注入） */
+let autoInitVault = false;
+export function setAutoInit(on: boolean): void {
+	autoInitVault = on;
 }
 
 export function rememberAgent(agent: unknown): void {

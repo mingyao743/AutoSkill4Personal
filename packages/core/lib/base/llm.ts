@@ -301,11 +301,21 @@ export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
         const errText = await res.text().catch(() => "");
         throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
       }
-      const { text, usage } = await consumeStream(res);
+      const { text, usage, finishReason } = await consumeStream(res);
       clearTimeout(timer);
       if (onAbort && opts.signal) opts.signal.removeEventListener("abort", onAbort);
       if (!text.trim()) throw new Error("LLM 返回空 content");
-      return { text, model, usage };
+
+      // 被 max_tokens 截断：**必须在这里就报**，不能把半截内容当完整结果往下传。
+      // 否则下游 JSON.parse 失败，报的是「输出不是合法 JSON」——完全看不出是长度问题，
+      // 会让人以为是模型不会写 JSON，去改提示词。
+      if (finishReason === "length") {
+        throw new Error(
+          `LLM 输出被截断（finish_reason=length，max_tokens=${body.max_tokens ?? "未设"}）。` +
+            "编译产物是 JSON，截断后必然不合法。调大 maxTokens 或缩小单窗内容。",
+        );
+      }
+      return { text, model, usage, finishReason };
     } catch (e) {
       if (onAbort && opts.signal) opts.signal.removeEventListener("abort", onAbort);
       lastErr = e;
@@ -318,13 +328,14 @@ export async function chatComplete(opts: ChatOptions): Promise<ChatResult> {
 }
 
 /** 消费 SSE 流，拼接 content（思考型模型的 reasoning_content 不入正文，但空 content 时回退取它） */
-async function consumeStream(res: Response): Promise<{ text: string; usage?: ChatUsage }> {
+async function consumeStream(res: Response): Promise<{ text: string; usage?: ChatUsage; finishReason?: string }> {
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let content = "";
   let reasoning = "";
   let usage: ChatUsage | undefined;
+  let finishReason: string | undefined;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -338,12 +349,15 @@ async function consumeStream(res: Response): Promise<{ text: string; usage?: Cha
       if (payload === "[DONE]") continue;
       try {
         const j = JSON.parse(payload) as {
-          choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+          choices?: Array<{ delta?: { content?: string; reasoning_content?: string }; finish_reason?: string | null }>;
           usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
         };
         const d = j.choices?.[0]?.delta;
         if (d?.content) content += d.content;
         if (d?.reasoning_content) reasoning += d.reasoning_content;
+        // 记录结束原因：`length` 表示被 max_tokens 截断，此时 content 是不完整的
+        const fr = j.choices?.[0]?.finish_reason;
+        if (fr) finishReason = fr;
         // 部分网关在最后一个 chunk 回传 usage（choices 为空）
         if (j.usage) {
           usage = {
@@ -359,20 +373,71 @@ async function consumeStream(res: Response): Promise<{ text: string; usage?: Cha
   }
   // 兼容 deepseek 风格：正文为空时从 reasoning 中抢救 JSON
   if (!content.trim() && reasoning) {
-    return { text: extractJsonFromText(reasoning) ?? reasoning, usage };
+    return { text: extractJsonFromText(reasoning) ?? reasoning, usage, finishReason };
   }
-  return { text: content, usage };
+  return { text: content, usage, finishReason };
 }
 
-/** 从文本中抢救 JSON（剥代码围栏、取首个 { 到末个 }） */
-export function extractJsonFromText(text: string): string | null {
-  let t = text.trim();
-  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) t = fence[1].trim();
+/**
+ * 从文本中抢救 JSON 的**候选**列表（按可信度排序）。
+ *
+ * 为什么不能只有一个答案：**正文里可能含 markdown 代码围栏**。
+ * 实测一次真实编译，模型生成的页面 body 里有 ```js 片段，而旧实现用
+ * `/```(?:json)?\s*([\s\S]*?)```/` 非贪婪匹配——它会停在**第一个内层围栏**，
+ * 于是 JSON 被从中间截断，报「不是合法 JSON」，看着像模型不会写 JSON。
+ *
+ * 所以这里给出多个候选，由调用方逐个试解析：
+ *  1. 整段原样（模型可能直接吐 JSON，没有围栏）
+ *  2. 首个 `{` 到末个 `}`（JSON 由花括号定界，内层反引号无影响）
+ *  3. 围栏内容，**用最后一个闭合围栏**（避免内层围栏截断）
+ *  4. 围栏内容，用第一个闭合围栏（模型只写了一个围栏时的常见情形）
+ */
+export function extractJsonCandidates(text: string): string[] {
+  const t = text.trim();
+  const out: string[] = [];
+  const push = (v: string | null | undefined): void => {
+    const s = v?.trim();
+    if (s && !out.includes(s)) out.push(s);
+  };
+
+  push(t);
+
   const first = t.indexOf("{");
   const last = t.lastIndexOf("}");
-  if (first < 0 || last <= first) return null;
-  return t.slice(first, last + 1);
+  if (first >= 0 && last > first) push(t.slice(first, last + 1));
+
+  const open = t.indexOf("```");
+  if (open >= 0) {
+    const bodyStart = t.indexOf("\n", open);
+    if (bodyStart > 0) {
+      const lastClose = t.lastIndexOf("```");
+      if (lastClose > bodyStart) push(t.slice(bodyStart + 1, lastClose));
+      const firstClose = t.indexOf("```", bodyStart);
+      if (firstClose > bodyStart) push(t.slice(bodyStart + 1, firstClose));
+    }
+  }
+
+  return out;
+}
+
+/**
+ * 从文本中抢救 JSON（单个最佳答案，兼容旧调用方）。
+ *
+ * 按候选顺序返回**第一个能被 JSON.parse 的**；都解析不了就返回第一个候选，
+ * 让调用方拿到「最可能的那段」去报错或做修复。
+ */
+export function extractJsonFromText(text: string): string | null {
+  const candidates = extractJsonCandidates(text);
+  if (candidates.length === 0) return null;
+  for (const c of candidates) {
+    try {
+      JSON.parse(c);
+      return c;
+    } catch {
+      /* 试下一个 */
+    }
+  }
+  return candidates[0] ?? null;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
