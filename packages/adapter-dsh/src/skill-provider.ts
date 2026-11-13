@@ -11,9 +11,9 @@
  *   description 非空字符串；invocation 两布尔可选但合法；source/rank/provider 必填。
  */
 import type { SkillCandidate, SkillDefinition, SkillProvider } from "@deepseek-ai/dsh-skill";
-import type { HostContext } from "../../core/lib/context.ts";
-import { instructionAtoms, type KnowledgeAtom } from "../../core/lib/atom-store.ts";
-import { usageSummary, appendUsage, type SkillUsage } from "../../core/lib/usage-store.ts";
+import type { HostContext } from "../../core/lib/base/context.ts";
+import { instructionAtoms, type KnowledgeAtom } from "../../core/lib/base/atom-store.ts";
+import { usageSummary, appendUsage, type SkillUsage } from "../../core/lib/skill/usage-store.ts";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 

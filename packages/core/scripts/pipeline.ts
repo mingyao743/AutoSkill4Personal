@@ -20,10 +20,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { setHostContext } from "../lib/context.ts";
-import { loadAtoms } from "../lib/atom-store.ts";
-import { parseSession } from "../lib/window.ts";
-import { runPipeline } from "../lib/pipeline.ts";
+import { setHostContext } from "../lib/base/context.ts";
+import { loadAtoms } from "../lib/base/atom-store.ts";
+import { parseSession } from "../lib/extract/window.ts";
+import { runPipeline } from "../lib/extract/pipeline.ts";
 
 const argv = process.argv.slice(2);
 const positional: string[] = [];

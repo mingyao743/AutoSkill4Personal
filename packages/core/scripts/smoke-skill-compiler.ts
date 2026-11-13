@@ -4,32 +4,32 @@
  * 覆盖：就绪门 / 选材器 / 短效判定 / 契约校验 M1–M6 / 编译简报。
  * 运行：node --experimental-strip-types packages/core/scripts/smoke-skill-compiler.ts
  */
-import type { KnowledgeAtom } from "../lib/atom-store.ts";
+import type { KnowledgeAtom } from "../lib/base/atom-store.ts";
 import {
   bodyBudgetFor, countTransientWording, formatValidation, parseSkillMd, validateSkillMd,
   requiredSectionsFor, BODY_BUDGET,
-} from "../lib/skill-contract.ts";
+} from "../lib/skill/skill-contract.ts";
 import {
   buildCompileBrief, checkReadiness, compileDue, effectiveDocType, inputHash, instructionAtomsOf,
   primaryDocType, sanitizeDomainName, scoreAtom, selectMaterials, sessionCount, transientReport,
-} from "../lib/compile-skill.ts";
+} from "../lib/skill/compile-skill.ts";
 import {
   cardsForBrief, docTypesForValidation, extractSkillMd, generateSkill, type GenerateCard,
-} from "../lib/generate-skill.ts";
+} from "../lib/skill/generate-skill.ts";
 import {
   POSITIVE_PASS, POSITIVE_PROBES, NEGATIVE_PASS, NEGATIVE_PROBES,
   buildRouteReport, cleanDescription, competitionFingerprint, loadRouteCache,
   parseJsonStringArray, probeCacheKey, routeReportBlocksApply, routeReportPath,
   routeTestSkill, saveRouteCache, scoreJudgments,
   type RouteCandidate, type RouteJudgment, type RouteProbes,
-} from "../lib/route-test.ts";
-import { clearChatCompleter, setChatCompleter, type ChatCompleter } from "../lib/llm.ts";
-import { loadCompileState, saveCompileState, lastCompileHashes } from "../lib/compile-state.ts";
+} from "../lib/skill/route-test.ts";
+import { clearChatCompleter, setChatCompleter, type ChatCompleter } from "../lib/base/llm.ts";
+import { loadCompileState, saveCompileState, lastCompileHashes } from "../lib/skill/compile-state.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setHostContext } from "../lib/context.ts";
+import { setHostContext } from "../lib/base/context.ts";
 
 let pass = 0;
 let fail = 0;

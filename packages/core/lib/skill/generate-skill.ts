@@ -14,14 +14,14 @@
  *
  * 不做的事（NEXT_STEPS §三）：不自动 --apply；不绕过 --validate；不覆盖 agent-maintained。
  */
-import { chatComplete } from "./llm.ts";
+import { chatComplete } from "../base/llm.ts";
 import {
   validateSkillMd,
   type SkillValidationReport,
   type SkillValidateOptions,
 } from "./skill-contract.ts";
 import type { CompileBrief } from "./compile-skill.ts";
-import type { KnowledgeAtom } from "./atom-store.ts";
+import type { KnowledgeAtom } from "../base/atom-store.ts";
 
 /** 单次重写上限（NEXT_STEPS §三：最多 2 次；初始 + 2 次重写 = 最多 3 次调用） */
 export const DEFAULT_MAX_REWRITES = 2;

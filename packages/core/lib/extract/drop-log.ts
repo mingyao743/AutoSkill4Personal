@@ -9,7 +9,7 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { kbDir } from "./atom-store.ts";
+import { kbDir } from "../base/atom-store.ts";
 import type { OneStageDrop } from "./one-stage.ts";
 
 export interface DropRecord {

@@ -10,15 +10,15 @@
 import {
   serializeForExtract, batchByTurn, overlapTurn, compressStats, compressArgs, parseArgs,
   assertErrorLinesKept, errorLines, isHarnessNoise, harnessNoiseCount,
-} from "../lib/compress.ts";
+} from "../lib/extract/compress.ts";
 import {
   parseOneStageOutput, autoFillDrops, copyRatio, extractSystemPrompt, buildUserPrompt,
   cardToAtom, rangeFromIds, quoteIsVerbatim, fillMissingSpecialized,
-} from "../lib/one-stage.ts";
-import { validateAtom } from "../lib/validate.ts";
-import { admissionGate, COPY_RATIO_MAX, transienceFlag } from "../lib/admission.ts";
-import { parseSession } from "../lib/window.ts";
-import type { MessageEntry } from "../lib/types.ts";
+} from "../lib/extract/one-stage.ts";
+import { validateAtom } from "../lib/extract/validate.ts";
+import { admissionGate, COPY_RATIO_MAX, transienceFlag } from "../lib/base/admission.ts";
+import { parseSession } from "../lib/extract/window.ts";
+import type { MessageEntry } from "../lib/base/types.ts";
 
 let pass = 0;
 let fail = 0;

@@ -14,8 +14,8 @@
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "@deepseek-ai/cordis";
-import { setHostContext, hostContext } from "../../core/lib/context.ts";
-import { logError } from "../../core/lib/atom-store.ts";
+import { setHostContext, hostContext } from "../../core/lib/base/context.ts";
+import { logError } from "../../core/lib/base/atom-store.ts";
 import { autoskillProvider } from "./skill-provider.ts";
 import { installDshLlm, type LlmBridgeConfig } from "./llm-bridge.ts";
 import {

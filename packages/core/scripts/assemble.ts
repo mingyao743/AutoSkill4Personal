@@ -24,9 +24,9 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { setHostContextFromArgs } from "../lib/context.ts";
-import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
-import { atomsPath, isInstructionAtom, kbDir, loadAtoms, type KnowledgeAtom } from "../lib/atom-store.ts";
+import { setHostContextFromArgs } from "../lib/base/context.ts";
+import { chatComplete, extractJsonFromText } from "../lib/base/llm.ts";
+import { atomsPath, isInstructionAtom, kbDir, loadAtoms, type KnowledgeAtom } from "../lib/base/atom-store.ts";
 
 // ---------- 参数 ----------
 setHostContextFromArgs(process.argv);

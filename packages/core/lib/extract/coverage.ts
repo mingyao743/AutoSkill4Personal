@@ -9,9 +9,9 @@
  *  - msg_range 里的 id 不在当前会话 entries 里（如 agent 声明型的 session 级占位）→ 跳过
  *  - 会话 id 形态不统一（pi CLI 用 8 位短 id，compaction 用完整 uuid）→ 按去连字符前缀匹配
  */
-import { loadAtoms, type KnowledgeAtom } from "./atom-store.ts";
+import { loadAtoms, type KnowledgeAtom } from "../base/atom-store.ts";
 import { reviewedRanges } from "./review-log.ts";
-import type { MessageEntry } from "./types.ts";
+import type { MessageEntry } from "../base/types.ts";
 
 export interface CoverageReport {
   total: number;

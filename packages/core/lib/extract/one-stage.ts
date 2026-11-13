@@ -16,14 +16,14 @@
  *     一次术语纠正）确实进了批次、全文未压缩，模型却既没出卡也没记 drop——静默忽略。
  *     只强制 user 消息（量小、是 P0 信号主载体），assistant/tool 消息只统计 unaccounted 不强制。
  */
-import { chatComplete, extractJsonFromText, type ChatUsage } from "./llm.ts";
+import { chatComplete, extractJsonFromText, type ChatUsage } from "../base/llm.ts";
 import {
   categoryForType, defaultAtomType, isDocType, keepAsForType, requiresExpiry,
   COPY_RATIO_MAX, OVERLAP_MIN_BODY_CHARS, DOC_TYPE_SPEC,
-} from "./admission.ts";
-import { atomId, type AtomSource, type KnowledgeAtom } from "./atom-store.ts";
+} from "../base/admission.ts";
+import { atomId, type AtomSource, type KnowledgeAtom } from "../base/atom-store.ts";
 import type { ExtractLine } from "./compress.ts";
-import type { MessageEntry } from "./types.ts";
+import type { MessageEntry } from "../base/types.ts";
 
 // COPY_RATIO_MAX / OVERLAP_MIN_BODY_CHARS 定义在 admission.ts（准入规则是它的执行方）
 export { COPY_RATIO_MAX, OVERLAP_MIN_BODY_CHARS };

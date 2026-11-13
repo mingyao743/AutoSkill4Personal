@@ -11,7 +11,7 @@
  *  - 压掉的大块留"取回凭证"（msg_id + 类型 + 原始体积 + 命令），供模型按需声明 need_context
  *  - 分批按轮次对齐：一轮对话（一个 user 消息到下一个 user 消息之前）绝不切开
  */
-import type { MessageEntry } from "./types.ts";
+import type { MessageEntry } from "../base/types.ts";
 
 export interface ExtractLine {
   id: string;

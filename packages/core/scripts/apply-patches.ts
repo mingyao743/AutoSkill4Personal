@@ -4,10 +4,10 @@
  * 用法：node --experimental-strip-types scripts/apply-patches.ts [--mark-all]
  *   --mark-all  bootstrap：把当前全部知识卡片标记为已整合（首次批量打包后用一次）
  */
-import { applyPatches } from "../lib/apply-patches.ts";
-import { markIntegrated, pendingSummary } from "../lib/skill-state.ts";
-import { loadAtoms } from "../lib/atom-store.ts";
-import { setHostContextFromArgs } from "../lib/context.ts";
+import { applyPatches } from "../lib/skill/apply-patches.ts";
+import { markIntegrated, pendingSummary } from "../lib/skill/skill-state.ts";
+import { loadAtoms } from "../lib/base/atom-store.ts";
+import { setHostContextFromArgs } from "../lib/base/context.ts";
 
 setHostContextFromArgs(process.argv);
 

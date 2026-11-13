@@ -17,9 +17,9 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
-import { hostContext, setHostContext } from "../../core/lib/context.ts";
-import { pendingSummary } from "../../core/lib/skill-state.ts";
-import { logError, loadAtoms } from "../../core/lib/atom-store.ts";
+import { hostContext, setHostContext } from "../../core/lib/base/context.ts";
+import { pendingSummary } from "../../core/lib/skill/skill-state.ts";
+import { logError, loadAtoms } from "../../core/lib/base/atom-store.ts";
 
 export const name = "autoskill-assemble-timer";
 

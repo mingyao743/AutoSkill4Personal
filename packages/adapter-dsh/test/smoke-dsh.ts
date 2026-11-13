@@ -11,8 +11,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setHostContext, hostContext } from "../../core/lib/context.ts";
-import { chatComplete, clearChatCompleter, activeConfigDescription } from "../../core/lib/llm.ts";
+import { setHostContext, hostContext } from "../../core/lib/base/context.ts";
+import { chatComplete, clearChatCompleter, activeConfigDescription } from "../../core/lib/base/llm.ts";
 import { autoskillProvider } from "../src/skill-provider.ts";
 import { buildAssembleArgs, resolveDataDir } from "../src/assemble-timer.ts";
 import { installDshLlm, rememberedTarget } from "../src/llm-bridge.ts";

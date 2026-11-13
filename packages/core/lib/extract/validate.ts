@@ -7,7 +7,7 @@
  *  旧知识卡片（无 doc_type）：沿用原逻辑（category+atom_type 必须命中 catalog）
  */
 import type { CatalogCategory } from "./prompt.ts";
-import type { KnowledgeAtom } from "./atom-store.ts";
+import type { KnowledgeAtom } from "../base/atom-store.ts";
 import {
   DOC_TYPE_SPEC,
   isDocType,
@@ -15,7 +15,7 @@ import {
   keepAsForType,
   requiresExpiry,
   checkSensitive,
-} from "./admission.ts";
+} from "../base/admission.ts";
 
 const ATOM_ID_RE = /^atom_[a-f0-9]{12}$/;
 /** 抽取窗口 win_*，或 agent 声明来源 decl_*（两者不互相污染） */

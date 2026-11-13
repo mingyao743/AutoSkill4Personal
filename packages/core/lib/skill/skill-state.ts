@@ -9,7 +9,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { kbDir, loadAtoms, isInstructionAtom, type KnowledgeAtom } from "./atom-store.ts";
+import { kbDir, loadAtoms, isInstructionAtom, type KnowledgeAtom } from "../base/atom-store.ts";
 import { usageSummary } from "./usage-store.ts";
 
 export interface SkillState {

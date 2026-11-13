@@ -16,8 +16,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { hostContext } from "./context.ts";
-import { kbDir, loadAtoms, logError } from "./atom-store.ts";
+import { hostContext } from "../base/context.ts";
+import { kbDir, loadAtoms, logError } from "../base/atom-store.ts";
 import { loadSkillState, saveSkillState } from "./skill-state.ts";
 import { appendUsage } from "./usage-store.ts";
 

@@ -5,6 +5,13 @@
 
 > **⚠️ 2026-11-13 更新**：本文产出后，旧两段式（`trigger-scan.ts` + `knowledge-extract.ts`）、旧整窗引擎 `extractWindow`（`extract-core.ts`）、`serialize.ts`、以及 `scripts/knowledge-extract.ts` + `scripts/trigger-scan-calibrate.ts` **已全部删除**，`runPipeline` 的 `twoStage` 开关一并移除。**当前唯一抽取引擎 = one-stage**（§2.1 + §3.1 + §4#1）。下文 §3.2 / §3.3 / §4#2-#4 / §6.4 描述的旧引擎为**删除前快照**，保留作 skill 化决策的对照语境；`extract-core.ts` 瘦身后仅留 `isMechanicalG4`（one-stage 准入闸复用）+ `normalizeAtom`（smoke 测试用）。
 
+> **📍 路径迁移（2026-11-13）**：`packages/core/lib/` 已扁平→模块化，三子文件夹。本文里的 `文件.ts` 路径按下表加前缀（行号不变）：
+> - `base/`：`types` `context` `atom-store` `admission` `llm`
+> - `extract/`：`pipeline` `one-stage` `compress` `extract-core` `window` `validate` `coverage` `review-log` `drop-log` `prompt`
+> - `skill/`：`compile-skill` `generate-skill` `skill-contract` `route-test` `apply-patches` `skill-state` `usage-store` `compile-state`
+> - `capture-orchestration.ts` 留 `lib/` 根（顶层触发编排，跨 extract+skill）
+> - 注：`scripts/pipeline.ts`（CLI）不在 lib，路径不变；本文 §1.1 表里的 `pipeline.ts` 简称指该 CLI。
+
 ---
 
 ## 1. 入口与触发

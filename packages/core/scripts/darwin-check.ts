@@ -10,12 +10,12 @@
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { setHostContextFromArgs, hostContext } from "../lib/context.ts";
+import { setHostContextFromArgs, hostContext } from "../lib/base/context.ts";
 import {
   darwinDue, darwinCheckDone, loadSkillState, darwinThreshold, darwinUseThreshold,
   pendingSummary,
-} from "../lib/skill-state.ts";
-import { usageSummary } from "../lib/usage-store.ts";
+} from "../lib/skill/skill-state.ts";
+import { usageSummary } from "../lib/skill/usage-store.ts";
 
 setHostContextFromArgs(process.argv);
 

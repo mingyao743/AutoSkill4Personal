@@ -17,12 +17,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hostContext } from "../../core/lib/context.ts";
-import { loadAtoms, logError } from "../../core/lib/atom-store.ts";
-import { parseSession } from "../../core/lib/window.ts";
-import { runPipeline } from "../../core/lib/pipeline.ts";
+import { hostContext } from "../../core/lib/base/context.ts";
+import { loadAtoms, logError } from "../../core/lib/base/atom-store.ts";
+import { parseSession } from "../../core/lib/extract/window.ts";
+import { runPipeline } from "../../core/lib/extract/pipeline.ts";
 import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
-import { resolveStandaloneConfig } from "../../core/lib/llm.ts";
+import { resolveStandaloneConfig } from "../../core/lib/base/llm.ts";
 import { shouldExtractOnTurn, EXTRACT_EVERY_N_TURNS } from "../../core/lib/capture-orchestration.ts";
 
 /** AutoSkill 仓库根（spawn cwd + CLI 绝对路径基准）：packages/adapter-dsh/src/tools.ts → 上三级到根 */

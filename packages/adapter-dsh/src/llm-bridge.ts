@@ -19,7 +19,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import {
 	clearChatCompleter, extractJsonFromText, setChatCompleter,
 	type ChatOptions, type ChatResult, type ChatUsage,
-} from "../../core/lib/llm.ts";
+} from "../../core/lib/base/llm.ts";
 
 /** dsh-llm 的结构子集（不 import 运行时，避免给适配层加硬依赖/类型漂移） */
 interface DshStreamChunk {

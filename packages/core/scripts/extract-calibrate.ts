@@ -20,15 +20,15 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { setHostContext } from "../lib/context.ts";
-import { resolveStandaloneConfig } from "../lib/llm.ts";
-import { parseSession } from "../lib/window.ts";
-import { coverageReport } from "../lib/coverage.ts";
-import { runPipeline } from "../lib/pipeline.ts";
-import { readDrops, dropStats } from "../lib/drop-log.ts";
-import { copyRatio } from "../lib/one-stage.ts";
-import { COPY_RATIO_MAX } from "../lib/admission.ts";
-import { serializeForExtract } from "../lib/compress.ts";
+import { setHostContext } from "../lib/base/context.ts";
+import { resolveStandaloneConfig } from "../lib/base/llm.ts";
+import { parseSession } from "../lib/extract/window.ts";
+import { coverageReport } from "../lib/extract/coverage.ts";
+import { runPipeline } from "../lib/extract/pipeline.ts";
+import { readDrops, dropStats } from "../lib/extract/drop-log.ts";
+import { copyRatio } from "../lib/extract/one-stage.ts";
+import { COPY_RATIO_MAX } from "../lib/base/admission.ts";
+import { serializeForExtract } from "../lib/extract/compress.ts";
 
 // ---------- 参数 ----------
 const argv = process.argv.slice(2);

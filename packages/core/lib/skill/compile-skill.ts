@@ -9,9 +9,9 @@
  * 所以选材/就绪门/契约必须自研，不能外包；本模块就是那部分。
  */
 import { createHash } from "node:crypto";
-import { isInstructionAtom, type KnowledgeAtom } from "./atom-store.ts";
-import { isDocType } from "./admission.ts";
-import { shortSessionId } from "./coverage.ts";
+import { isInstructionAtom, type KnowledgeAtom } from "../base/atom-store.ts";
+import { isDocType } from "../base/admission.ts";
+import { shortSessionId } from "../extract/coverage.ts";
 import {
   BODY_BUDGET, DEFAULT_BODY_BUDGET, bodyBudgetFor, requiredSectionsFor,
 } from "./skill-contract.ts";

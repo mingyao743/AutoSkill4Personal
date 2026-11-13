@@ -19,12 +19,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { setHostContext } from "../../packages/core/lib/context.ts";
-import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
-import { appendUsage } from "../../packages/core/lib/usage-store.ts";
-import { coverageReport } from "../../packages/core/lib/coverage.ts";
-import { logError } from "../../packages/core/lib/atom-store.ts";
-import type { MessageEntry } from "../../packages/core/lib/types.ts";
+import { setHostContext } from "../../packages/core/lib/base/context.ts";
+import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/base/llm.ts";
+import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
+import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
+import { logError } from "../../packages/core/lib/base/atom-store.ts";
+import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import {
   kbStatusText, pendingNoticeText,
   shouldExtractOnTurn, runScheduledExtraction,

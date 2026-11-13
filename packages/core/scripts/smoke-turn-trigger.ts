@@ -15,7 +15,7 @@ import { join } from "node:path";
 import {
   shouldExtractOnTurn, unreviewedUserTurns, EXTRACT_EVERY_N_TURNS,
 } from "../lib/capture-orchestration.ts";
-import type { MessageEntry } from "../lib/types.ts";
+import type { MessageEntry } from "../lib/base/types.ts";
 
 // 确定性：指向空临时目录，loadAtoms() 返回 [] → coveredIds 空 → 所有 user 消息都算未审
 process.env.AUTOSKILL_DATA_DIR = mkdtempSync(join(tmpdir(), "autoskill-smoke-turn-"));

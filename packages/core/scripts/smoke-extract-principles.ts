@@ -1,13 +1,13 @@
 // 冒烟测试：存的分诊层（8 类型 / 准入规则 / 类型推导 / 窗口 id 唯一性）
 // 运行：node --experimental-strip-types packages/core/scripts/smoke-extract-principles.ts
-import { buildSystemPrompt } from "../lib/prompt.ts";
-import { validateAtom } from "../lib/validate.ts";
-import { normalizeAtom, isMechanicalG4 } from "../lib/extract-core.ts";
+import { buildSystemPrompt } from "../lib/extract/prompt.ts";
+import { validateAtom } from "../lib/extract/validate.ts";
+import { normalizeAtom, isMechanicalG4 } from "../lib/extract/extract-core.ts";
 import {
   DOC_TYPES, categoryForType, keepAsForType, admissionGate, declaredSource,
-} from "../lib/admission.ts";
-import { buildWindows } from "../lib/window.ts";
-import type { MessageEntry } from "../lib/types.ts";
+} from "../lib/base/admission.ts";
+import { buildWindows } from "../lib/extract/window.ts";
+import type { MessageEntry } from "../lib/base/types.ts";
 
 let failed = 0;
 const ok = (cond: boolean, name: string, detail = ""): void => {

@@ -5,9 +5,9 @@
  * 被复用的纯函数：normalizeAtom 供 smoke-extract-principles 测类型推导；
  * isMechanicalG4 被 one-stage 主线（pipeline.ts 准入闸）+ smoke 复用。
  */
-import { atomId, type AtomSource, type KnowledgeAtom } from "./atom-store.ts";
-import { categoryForType, defaultAtomType, isDocType, isKeepAs, keepAsForType } from "./admission.ts";
-import type { MessageEntry, Window } from "./types.ts";
+import { atomId, type AtomSource, type KnowledgeAtom } from "../base/atom-store.ts";
+import { categoryForType, defaultAtomType, isDocType, isKeepAs, keepAsForType } from "../base/admission.ts";
+import type { MessageEntry, Window } from "../base/types.ts";
 
 // 各 category 特化字段白名单（schema 全字段保留，只透传清单内的）
 const PASS_FIELDS = new Set([

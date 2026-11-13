@@ -16,9 +16,9 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { chatComplete, extractJsonFromText } from "../lib/llm.ts";
-import { isInstructionAtom, kbDir, loadAtoms } from "../lib/atom-store.ts";
-import { setHostContextFromArgs } from "../lib/context.ts";
+import { chatComplete, extractJsonFromText } from "../lib/base/llm.ts";
+import { isInstructionAtom, kbDir, loadAtoms } from "../lib/base/atom-store.ts";
+import { setHostContextFromArgs } from "../lib/base/context.ts";
 
 const CARDS_DIR = join(kbDir(), "cards");
 const CATEGORY_LABELS: Record<string, string> = {

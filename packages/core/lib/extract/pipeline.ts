@@ -11,7 +11,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { kbDir, appendAtoms, existingAtomIds, loadAtoms, type KnowledgeAtom } from "./atom-store.ts";
+import { kbDir, appendAtoms, existingAtomIds, loadAtoms, type KnowledgeAtom } from "../base/atom-store.ts";
 import { coveredIds } from "./coverage.ts";
 import { appendReviewed } from "./review-log.ts";
 import { appendDrops, appendRejected } from "./drop-log.ts";
@@ -22,10 +22,10 @@ import {
   cardToAtom, copyRatio, runOneStageBatch, quoteIsVerbatim, fillMissingSpecialized,
   type OneStageCard,
 } from "./one-stage.ts";
-import { admissionGate } from "./admission.ts";
+import { admissionGate } from "../base/admission.ts";
 import { validateAtom } from "./validate.ts";
 import { isMechanicalG4 } from "./extract-core.ts";
-import type { MessageEntry } from "./types.ts";
+import type { MessageEntry } from "../base/types.ts";
 
 export type HarnessKind = "pi" | "dsh" | "cli";
 

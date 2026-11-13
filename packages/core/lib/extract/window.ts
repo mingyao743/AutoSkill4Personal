@@ -4,7 +4,7 @@
  * 小窗让单次 LLM 调用的知识密度可控、失败重试成本低；条数与字符预算减半对齐。
  * 纯函数、纯内存——在线(extension)与离线(CLI)共用同一份逻辑。
  */
-import type { MessageEntry, SessionEntry, Window } from "./types.ts";
+import type { MessageEntry, SessionEntry, Window } from "../base/types.ts";
 
 export interface WindowOptions {
   maxEntries?: number; // 每窗最大消息条数（默认 50）

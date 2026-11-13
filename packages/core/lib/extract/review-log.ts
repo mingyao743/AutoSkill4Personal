@@ -12,7 +12,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { kbDir } from "./atom-store.ts";
+import { kbDir } from "../base/atom-store.ts";
 
 export interface ReviewRecord {
   ts: string;

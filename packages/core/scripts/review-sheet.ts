@@ -17,12 +17,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseSession } from "../lib/window.ts";
-import { serializeForExtract } from "../lib/compress.ts";
-import { readDrops, readRejected } from "../lib/drop-log.ts";
-import { setHostContext } from "../lib/context.ts";
-import { copyRatio } from "../lib/one-stage.ts";
-import { COPY_RATIO_MAX } from "../lib/admission.ts";
+import { parseSession } from "../lib/extract/window.ts";
+import { serializeForExtract } from "../lib/extract/compress.ts";
+import { readDrops, readRejected } from "../lib/extract/drop-log.ts";
+import { setHostContext } from "../lib/base/context.ts";
+import { copyRatio } from "../lib/extract/one-stage.ts";
+import { COPY_RATIO_MAX } from "../lib/base/admission.ts";
 
 const argv = process.argv.slice(2);
 const positional: string[] = [];

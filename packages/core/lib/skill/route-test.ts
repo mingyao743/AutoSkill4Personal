@@ -18,7 +18,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { chatComplete, extractJsonFromText } from "./llm.ts";
+import { chatComplete, extractJsonFromText } from "../base/llm.ts";
 
 /** 探针数量与通过阈值（SKILL_COMPILER §五） */
 export const POSITIVE_PROBES = 5;

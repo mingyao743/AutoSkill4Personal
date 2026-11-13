@@ -42,24 +42,24 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { setHostContext } from "../lib/context.ts";
-import { isInstructionAtom, loadAtoms, type KnowledgeAtom } from "../lib/atom-store.ts";
-import { intakeDir } from "../lib/apply-patches.ts";
-import { loadCompileState, saveCompileState } from "../lib/compile-state.ts";
+import { setHostContext } from "../lib/base/context.ts";
+import { isInstructionAtom, loadAtoms, type KnowledgeAtom } from "../lib/base/atom-store.ts";
+import { intakeDir } from "../lib/skill/apply-patches.ts";
+import { loadCompileState, saveCompileState } from "../lib/skill/compile-state.ts";
 import {
   buildCompileBrief, checkReadiness, effectiveDocType, instructionAtomsOf, sanitizeDomainName, selectMaterials,
   type CompileBrief,
-} from "../lib/compile-skill.ts";
+} from "../lib/skill/compile-skill.ts";
 import {
   bodyBudgetFor, formatValidation, parseSkillMd, referencePaths, validateSkillMd, type SkillValidationReport,
-} from "../lib/skill-contract.ts";
+} from "../lib/skill/skill-contract.ts";
 import {
   cardsForBrief, docTypesForValidation, generateSkill,
-} from "../lib/generate-skill.ts";
+} from "../lib/skill/generate-skill.ts";
 import {
   buildRouteReport, NEGATIVE_PASS, NEGATIVE_PROBES, POSITIVE_PASS, POSITIVE_PROBES,
   routeReportBlocksApply, routeReportPath, routeTestSkill, type RouteCandidate,
-} from "../lib/route-test.ts";
+} from "../lib/skill/route-test.ts";
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2);

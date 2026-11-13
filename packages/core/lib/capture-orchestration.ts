@@ -16,15 +16,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   atomsPath, loadAtoms, logError,
-} from "./atom-store.ts";
+} from "./base/atom-store.ts";
 
-import { applyPatches, intakeDir } from "./apply-patches.ts";
-import { darwinDue, pendingSummary, darwinThreshold } from "./skill-state.ts";
-import { compileDue } from "./compile-skill.ts";
-import { lastCompileHashes } from "./compile-state.ts";
-import { runPipeline, type PipelineReport } from "./pipeline.ts";
-import { coveredIds } from "./coverage.ts";
-import type { MessageEntry } from "./types.ts";
+import { applyPatches, intakeDir } from "./skill/apply-patches.ts";
+import { darwinDue, pendingSummary, darwinThreshold } from "./skill/skill-state.ts";
+import { compileDue } from "./skill/compile-skill.ts";
+import { lastCompileHashes } from "./skill/compile-state.ts";
+import { runPipeline, type PipelineReport } from "./extract/pipeline.ts";
+import { coveredIds } from "./extract/coverage.ts";
+import type { MessageEntry } from "./base/types.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 export const ASSEMBLE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "assemble.ts");
