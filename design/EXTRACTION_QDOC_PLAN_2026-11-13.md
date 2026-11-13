@@ -302,7 +302,7 @@ source_turns: "3-6"
 | | dsh | pi |
 |---|---|---|
 | 形态 | cordis 插件（bundle） | extension |
-| 注入什么 | `inject = ["skills", "llm"]` | `ExtensionAPI` |
+| 注入什么 | `inject = ["llm"]`（provider 已随旧架构移除） | `ExtensionAPI` |
 | 轮次钩子 | **没有 per-turn 钩子**（cordis 只暴露 `tools/skills/llm/effect`）→ 定时器轮询会话文件 mtime | `before_agent_start`，逐轮精确 |
 | 触发精度 | 约 120s 滞后 | 逐轮 |
 | 编译用谁的模型 | `ctx.llm`（宿主内闭环） | `models.json` 里的当前路由 |
@@ -1511,6 +1511,68 @@ npm run check-skill      # 只比对，退出码 1 表示有漂移
 ```
 
 它打印每个技能的内容哈希，两边一致才算装好。
+
+### 11.3g 实现与方案的差异核对（2026-11-13 18:40）
+
+逐节核对 §3–§16 与代码，结论分三类。
+
+#### 一致（逐项验过）
+
+| 契约/规则 | 位置 | 状态 |
+|---|---|---|
+| `window.json` 字段与 120k 字符 / 工具结果 2k 截断 | §4 | ✓ |
+| `compile-report.json` | §4 | ✓（`cost` 改名 `usage`，语义同） |
+| `.ow/state.json` 水位线按 `<agent>:<sessionId>` | §4 | ✓ |
+| `machine.json` 预算 `by_vault` | §4 | ✓（锁独立成目录，实现更清晰） |
+| `.ow/lock` + `~/.config/qdoc/machine.lock` 两级锁 | §5.6 | ✓ |
+| 7 道门禁 + 阈值（1MB / 0.45 / 0.7 / 200 字） | §12 | ✓ |
+| 入队 7 条件（含 90s 空闲、防自触发、机器级锁） | §5.4 | ✓ |
+| 尾部结算 `TAIL_MIN_TURNS=5` | §5.7 | ✓ |
+| `source.kind == "user"` 过滤（bug 1 的修法） | §5.8 | ✓ |
+| 水位线记 `seq` 而非 sources 覆盖（bug 2 的修法） | §5.8 | ✓ |
+| 唤醒词判定（句首 + 独立成词 + 跟动词） | §6.2 | ✓ |
+| `ow capture` 无凭据落 `capture.json`、同会话覆盖 | §6.4b | ✓ |
+| `ow:meta` HTML 注释保 provenance | §10.9 | ✓（字段比方案多 agent/session/turns/hash） |
+| 四个送达通道（文件 / review / 播报 / 通知） | §11.2 | ✓ |
+| `pending/<ts>-<kind>.json` 格式 | §11.4 | ✓（加随机后缀防同毫秒碰撞） |
+| 10 个 CLI 命令 | §10.7 | ✓ |
+
+#### 差异：代码缺（真缺口，按严重度排）
+
+| # | 方案要求 | 现状 | 影响 |
+|---|---|---|---|
+| 1 | 版本冲突 → 三方合并（§9.3、§10.6） | `publish.ts` 直接 `updateDocument`，冲突即抛错；`conflict.ts` 只被 `status.ts` 用来「显示」 | **多设备推同一篇必失败**，且没有 `.publish/base/` 快照可合并 |
+| 2 | `.publish/base/<doc_id>.md` 快照（§4、§10.6） | 未落盘 | 三方合并的前提没有，冲突时无 base |
+| 3 | `metrics.jsonl` 埋点（§13） | 只有注释提到，无写入 | 触发/编译/发布/质量四类指标全无，调参靠猜 |
+| 4 | 每窗口 ≤60k 输入 token（§13） | 只有 120k **字符**上限，无 token 估算 | 中文 120k 字符≈60–80k token，可能超；且中文/英文比例不同，字符数不能等价 |
+| 5 | 设备标识 `ow:origin` 标签 + `updated_by`（§10.6） | 未实现 | 多设备时不知道谁改的 |
+| 6 | `ow sync --prune`（§10.7） | 未实现 | 平台禁用后本地残留 |
+| 7 | `ow doctor`（§10.12①） | 未实现 | token 权限 600 与被 git 跟踪无法自查 |
+| 8 | `--read-only`（§10.12①） | 未实现 | 只读机器没有约定入口 |
+| 9 | 拉技能限流 200ms/个 + 大小保护（>200 文件 / >20MB，§10.5） | 未实现 | `motion-showreel` 114 文件 / 787KB 已接近；无保护有爆内存风险 |
+| 10 | 每天 03:00 全量 `--check` 调度（§16 已定⑮） | 只写在注释，无调度器 | 内容更新不会自动发现，得手动 `--check` |
+| 11 | `pending_enable` **轮询**自愈（§16 已定⑭） | `healPendingEnable` 只在手动 `pull` 时调 | 不 pull 就一直显示「待启用」 |
+| 12 | kill switch（P4） | 未实现 | 出问题无法一键停 |
+| 13 | 评测集、hub vault（P4） | 未实现 | P4 尚未开始，属正常 |
+
+#### 差异：代码多（实现比方案好，方案应更新）
+
+| 实现 | 方案 | 说明 |
+|---|---|---|
+| `dsh inject = ["llm"]` | §5.2 写 `["skills","llm"]` | provider 已删，`skills` 不再需要。**已改方案** |
+| 待确认队列文件名加随机后缀 | §11.4 只写 `<ts>-<kind>` | 同毫秒同 kind 会覆盖，加后缀修掉 |
+| `compile-report` 用 `usage` 而非 `cost` | §4 写 `cost` | 与 `ChatUsage` 命名统一 |
+| 门禁隐私扫描复用 `security/secrets.ts` | §12 列了规则但没说要共享 | 单一真相源，避免两套正则漂移 |
+| `diverged` 动作（本地改 + 平台未改） | §10.5 没列这个状态 | 原实现误报 `unchanged`，是 bug |
+| 唤醒词支持 `小Q`/`QDoc`/`QDOC` 变体 | §6.2 只写 `qdoc`/`小q` | 大小写不该影响识别 |
+
+#### 差异：pi 与 dsh 不对称（需决策）
+
+`packages/adapter-pi/knowledge-capture.ts:161` 仍调 `maybeRunPipeline`——**旧的 atoms 抽取管线**。dsh 侧已随旧架构删除，pi 侧还在跑。
+
+后果：pi 会继续往 `~/.pi/agent/data/autoskill/knowledge/atoms.jsonl` 写旧格式数据，而 dsh 不写了。两条产物线一条活一条死，`kb-status` 之类的旧命令读到的数据会越来越偏。
+
+**这是必须二选一的**：要么 pi 侧也删掉（与 dsh 一致），要么明确「pi 保留旧管线」的理由。按「旧 autoskill 完全摒弃」的决定，应当删。
 
 ### 11.4 pending 队列格式
 

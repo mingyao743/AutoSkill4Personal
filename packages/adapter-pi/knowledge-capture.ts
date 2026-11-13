@@ -9,8 +9,12 @@
  *   - 工具响应格式化
  *
  * 统一触发（全 agent 一份逻辑，core 定义）：
- *   + before_agent_start（user 轮）→ core.shouldExtractOnTurn（未审 user 轮≥N=30）→ core.runScheduledExtraction（多批）
- *   无手动工具（capture_knowledge/kb_harvest 已去），纯自动每 N 轮。
+ *   + before_agent_start（user 轮）→ core/trigger/cycle.ts 的 maybeCompile
+ *     （30 轮闸 → 信号门 → 两级锁 → 进程内编译）
+ *
+ * 旧的 atoms 抽取管线（shouldExtractOnTurn / runScheduledExtraction）已随旧
+ * autoskill 架构删除，与 dsh 侧保持一致——两边只产出 `.qdoc/` 知识页这一种产物。
+ * 手动入口是 `qdoc` 前门技能（唤醒词），不是工具。
  *
  * 安装：pi package 机制（仓库根 package.json manifest）；推荐 `pi install ./AutoSkill` 或 git/npm 源。
  * 也可手工在 settings.json 的 extensions 数组写本文件绝对路径（不要符号链接：jiti 从注册路径解析相对导入）。
@@ -23,14 +27,12 @@ import { setHostContext } from "../../packages/core/lib/base/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/base/llm.ts";
 import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
 import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
-import { logError } from "../../packages/core/lib/base/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   kbStatusText, pendingNoticeText,
-  shouldExtractOnTurn, runScheduledExtraction,
   applyPatches,
 } from "../../packages/core/lib/capture-orchestration.ts";
 
@@ -43,36 +45,6 @@ setHostContext({
   modelsPath: process.env.PI_MODELS_PATH,
   settingsPath: join(homedir(), ".pi", "agent", "settings.json"),
 });
-
-// ---------- 进程内管线节流（运行中标志；阈值/defaults 在 core） ----------
-let pipelineRunning = false;
-
-/** 每轮之后异步推进知识管线（core 判阈值 + 跑 1 批；失败只记日志，绝不打断对话） */
-async function maybeRunPipeline(ctx: unknown, reason: string): Promise<void> {
-  if (pipelineRunning) return;
-  const sm = (ctx as {
-    sessionManager?: {
-      getSessionId?: () => string;
-      getEntries?: () => Array<{ type?: string; id?: string }>;
-    };
-  })?.sessionManager;
-  const id = sm?.getSessionId?.();
-  const all = sm?.getEntries?.() ?? [];
-  const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string") as unknown as MessageEntry[];
-  if (!id || entries.length === 0) return;
-  if (!shouldExtractOnTurn(entries, id).extract) return;
-
-  pipelineRunning = true;
-  try {
-    const report = await runScheduledExtraction(id, entries, "pi");
-    const ui = (ctx as { ui?: { notify?: (m: string, type?: string) => void } }).ui;
-    if (report.atoms > 0) ui?.notify?.(`[知识管道] 知识抽取 ${report.atoms} 条知识（${reason}）`, "info");
-  } catch (e) {
-    logError(`pipeline(${reason}) 失败: ${String(e).slice(0, 200)}`);
-  } finally {
-    pipelineRunning = false;
-  }
-}
 
 /** 编译内核技能目录（仓库内 agent-skills/ow-compiler） */
 const COMPILER_SKILL_DIR = join(
@@ -154,11 +126,9 @@ export default function (pi: ExtensionAPI) {
 
   // ---------- 0b. before_agent_start：首个用户轮注入提示（pending + darwin 体检） ----------
   pi.on("before_agent_start", async (event, ctx) => {
-    // 用户轮开始前：两条管线并行
-    //  a) 旧的 atoms 抽取（未审 user 轮≥30 才抽，多批一次清）
-    //  b) 新的 vault 编译（30 轮闸 → 信号门 → 两级锁 → 进程内编译）
+    // 用户轮开始前推进知识编译（30 轮闸 → 信号门 → 两级锁 → 进程内编译）。
+    // 旧的 atoms 抽取管线已随旧 autoskill 架构移除，与 dsh 侧保持一致。
     if (event.messageType === "user") {
-      void maybeRunPipeline(ctx, "turn");
       void maybeRunCycle(ctx, "turn").catch((e) => {
         logError(`cycle(turn) 失败: ${String(e).slice(0, 200)}`);
       });
