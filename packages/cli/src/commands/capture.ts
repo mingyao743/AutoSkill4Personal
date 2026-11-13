@@ -40,6 +40,9 @@ export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
     turns: Number(flagString(args, "turns") ?? 30),
     maxWindows: Number(flagString(args, "max-windows") ?? 8),
     planOnly,
+    // `ow capture` 本身就是手动入口（用户说「小q 沉淀」或主动敲命令），
+    // 所以跳过信号门（方案 §6.5）。--auto 可以强制走自动判定。
+    manual: !flagBool(args, "auto"),
   };
 
   if (planOnly) {
@@ -50,11 +53,13 @@ export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
     }
     const lines = [`会话：${file}`, `凭据：${describeCredentialSituation()}`, ""];
     for (const w of wins) {
-      const mark = w.signal.keep ? "✓" : "✗";
+      const keep = w.signal.keep || w.forced;
+      const mark = keep ? "✓" : "✗";
+      const why = w.forced && !w.signal.keep ? `手动触发，跳过信号门（本来会被 ${w.signal.reason} 拦下）` : w.signal.reason;
       lines.push(`${mark} 第 ${w.from_turn}–${w.to_turn} 轮（${w.turns} 轮 / ${w.chars} 字符）`);
-      lines.push(`   信号：${w.signal.reason}  工具调用 ${w.signal.stats.toolCalls} 次`);
+      lines.push(`   信号：${why}  工具调用 ${w.signal.stats.toolCalls} 次`);
     }
-    lines.push("", `共 ${wins.length} 个窗口，其中 ${wins.filter((w) => w.signal.keep).length} 个会编译`);
+    lines.push("", `共 ${wins.length} 个窗口，其中 ${wins.filter((w) => w.signal.keep || w.forced).length} 个会编译`);
     out(args, lines.join("\n"), { windows: wins, credential: describeCredentialSituation() });
     return 0;
   }

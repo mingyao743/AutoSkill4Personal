@@ -37,6 +37,14 @@ export interface CaptureOptions {
   maxWindows?: number;
   /** 只切窗不编译 */
   planOnly?: boolean;
+  /**
+   * 手动触发（用户说「小q 沉淀」）。
+   *
+   * 手动窗口**跳过信号门**（方案 §6.5）：用户明确叫了就是要记，此时
+   * 「纯检索」「短闲聊」这些降噪规则不适用——它们的目的是省 token，
+   * 而手动触发已经花了用户一次表达成本，再拒绝就是违背直觉。
+   */
+  manual?: boolean;
 }
 
 export type CaptureOutcome =
@@ -54,6 +62,17 @@ export interface PlannedWindow {
   turns: number;
   hash: string;
   signal: SignalResult;
+  /**
+   * 手动触发时强制编译（方案 §6.5）。
+   *
+   * 手动窗口**跳过信号门**：用户明确叫了就是要记，「纯检索」「短闲聊」这些
+   * 降噪规则此时不适用——它们的目的是省 token，而手动触发已经花了用户一次
+   * 表达成本，再拒绝就违背直觉。
+   *
+   * 但 `signal` 仍保留**真实判定**，这样 `ow capture --plan` 还能看到
+   * 「这段本来会被信号门拦下，因为你是手动触发才编的」。
+   */
+  forced?: boolean;
   chars: number;
 }
 
@@ -122,6 +141,7 @@ export function planWindows(opts: CaptureOptions): PlannedWindow[] {
       turns: payload.turns,
       hash: payload.hash,
       signal: evaluateSignal(payload),
+      forced: opts.manual === true ? true : undefined,
       chars: payload.messages.reduce((n, m) => n + m.text.length, 0),
     });
     from = windowEndTurn(win);
@@ -150,7 +170,8 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
   if (pending === 0) return { status: "nothing-pending", pending: 0 };
 
   const planned = planWindows(opts);
-  const keep = planned.filter((p) => p.signal.keep);
+  // 手动触发跳过信号门（§6.5）：forced 的窗口一律编译
+  const keep = planned.filter((p) => p.signal.keep || p.forced);
 
   if (opts.planOnly) {
     return { status: "planned", windows: planned, queued: keep.map((p) => `${p.from_turn}-${p.to_turn}`) };
@@ -190,7 +211,12 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
       const prompt = buildCompilePrompt({ vaultDir: opts.vaultDir, window: payload, skillDir: opts.skillDir });
       const result = await runCompile({ prompt });
       model = result.model;
-      const report = writeCompileResult({ vaultDir: opts.vaultDir, window: payload, result });
+      const report = writeCompileResult({
+        vaultDir: opts.vaultDir,
+        window: payload,
+        result,
+        trigger: opts.manual ? "manual" : "auto",
+      });
       reports.push(report);
       compiledTo = windowEndTurn(win);
       advanceState(opts.vaultDir, key, {

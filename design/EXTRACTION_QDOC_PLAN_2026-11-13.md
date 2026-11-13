@@ -1554,6 +1554,13 @@ npm run check-skill      # 只比对，退出码 1 表示有漂移
 | 11 | `pending_enable` **轮询**自愈（§16 已定⑭） | `healPendingEnable` 只在手动 `pull` 时调 | 不 pull 就一直显示「待启用」 |
 | 12 | kill switch（P4） | 未实现 | 出问题无法一键停 |
 | 13 | 评测集、hub vault（P4） | 未实现 | P4 尚未开始，属正常 |
+| 14 | `ow query` **本地优先**再兜底平台（§10.10、§10.2） | **已修**：本地命中 ≥2 直接返回，<2 才查平台；加 `--platform` 强制两边都查 | — |
+| 15 | 正文加一行 `> Compiled from agent session …`（§9.4） | 未实现 | 平台页面上看不出这段知识来自哪次会话（meta 注释不可见） |
+| 16 | 文末生成 `## Related` 纯文本清单（§9.4） | `rewriteWikilinks` 只把 `[[x]]` 降级成纯文本，不生成清单 | 平台上页面之间的关联信息丢失 |
+| 17 | 技能「30 分钟轻量检查」（§10.2） | 只写在注释，无调度器 | 新增/禁用技能不会自动发现 |
+| 18 | `valid_from`、`updated_by` 进 meta 注释（§9.4、§10.9） | 未实现 | 多设备时不知道谁改的、何时改的 |
+| 19 | 手动入口**跳过信号门**（§6.5） | **已修**：`planWindows` 加 `manual` 选项 → `forced` 标记；`signal` 仍记真实判定供 `--plan` 展示。`ow capture --auto` 可回到自动判定 | — |
+| 20 | 报告记 `trigger: manual`（§6.5） | **已修**：`CompileReport.trigger` + `WritePagesOptions.trigger` | — |
 
 #### 差异：代码多（实现比方案好，方案应更新）
 
@@ -1573,6 +1580,33 @@ npm run check-skill      # 只比对，退出码 1 表示有漂移
 后果：pi 会继续往 `~/.pi/agent/data/autoskill/knowledge/atoms.jsonl` 写旧格式数据，而 dsh 不写了。两条产物线一条活一条死，`kb-status` 之类的旧命令读到的数据会越来越偏。
 
 **这是必须二选一的**：要么 pi 侧也删掉（与 dsh 一致），要么明确「pi 保留旧管线」的理由。按「旧 autoskill 完全摒弃」的决定，应当删。
+
+#### 本次修掉的 3 项
+
+**① 手动触发被信号门误拒（最违背直觉）**
+
+用户说「小q 沉淀」，`planWindows` 却照样跑 `evaluateSignal`——纯检索、短闲聊
+会被判 `keep: false`，用户明确要记的东西反而被拒。
+
+修法：`CaptureOptions.manual` → `PlannedWindow.forced`。`signal` **仍然记真实判定**
+（`--plan` 能看到「这段本来会被 short-chatter 拦下，因为你是手动触发才编的」），
+只是决策改成 `keep || forced`。`ow capture --auto` 保留自动判定。
+
+**② `ow query` 不查本地**
+
+`query.ts` 直接打平台，本地明明有这一页也得走网络，断网就查不到。
+
+修法：先 `scanPages` 在 title/summary/tags 里打分（title 权重 3、tag 2、summary 1），
+命中 ≥2 篇直接返回，不花网络；<2 才 `search_documents` 兜底。`--platform` 强制两边都查。
+输出标 `[local]` / 平台命中数，来源一眼可辨。
+
+**③ 报告不记触发来源**
+
+`compile-report.json` 没有 `trigger` 字段，事后分不清哪页是自动编的、哪页是用户点名要的。
+补 `trigger: "auto" | "manual"`，由 `runCapture` 按 `manual` 传入。
+
+新增 8 条断言（`capture.test.ts`）：自动/手动两条路径下 `keep` / `forced` 的组合，
+以及「纯闲聊会话在手动触发时确实入队」。
 
 ### 11.4 pending 队列格式
 

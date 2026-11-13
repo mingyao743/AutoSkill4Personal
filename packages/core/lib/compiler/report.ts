@@ -31,6 +31,8 @@ export interface CompileReport {
   pages_created: number;
   pages_updated: number;
   pages_skipped: Array<{ path?: string; reason: string; detail?: string }>;
+  /** 这次编译是自动触发还是用户点名（方案 §6.5）；事后能分清哪页是哪来的 */
+  trigger?: "auto" | "manual";
   publish_candidates: string[];
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   warnings: string[];
@@ -42,11 +44,14 @@ export interface WritePagesOptions {
   vaultDir: string;
   window: WindowPayload;
   result: CompileRunResult;
+  /** 自动 / 手动（方案 §6.5）；缺省记 auto */
+  trigger?: "auto" | "manual";
 }
 
 /** 把编译结果写进 vault，返回报告 */
 export function writeCompileResult(opts: WritePagesOptions): CompileReport {
   const { vaultDir, window, result } = opts;
+  const trigger = opts.trigger ?? "auto";
   const startedAt = new Date(Date.now() - result.elapsedMs).toISOString();
   const warnings: string[] = [];
   const skipped: CompileReport["pages_skipped"] = [];
@@ -113,6 +118,7 @@ export function writeCompileResult(opts: WritePagesOptions): CompileReport {
   const report: CompileReport = {
     schema: 1,
     window_hash: window.hash,
+    trigger,
     agent: window.agent,
     session_id: window.session_id,
     from_turn: window.from_turn,

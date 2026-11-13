@@ -36,6 +36,30 @@ function makeSession(dir: string, turns: number, id = "session-t1"): string {
   return p;
 }
 
+/** 造一个「纯闲聊」会话：没有工具调用，信号门会判 short-chatter 拦下 */
+function makeChatter(dir: string, turns: number, id = "session-chat"): string {
+  const lines: string[] = [];
+  let seq = 1;
+  lines.push(JSON.stringify({ type: "session", version: 4, id, cwd: "/proj", delegationDepth: 0 }));
+  for (let t = 1; t <= turns; t++) {
+    lines.push(JSON.stringify({ type: "turn/start", seq: seq++, data: { turn: t } }));
+    lines.push(JSON.stringify({
+      type: "user/message", seq: seq++,
+      data: { role: "user", source: { kind: "user" }, id: `u${t}`, content: [{ type: "text", text: `在吗 ${t}` }] },
+    }));
+    lines.push(JSON.stringify({
+      type: "assistant/message", seq: seq++,
+      data: { message: { role: "assistant", id: `a${t}`, content: [{ type: "text", text: "在的。" }] } },
+    }));
+    lines.push(JSON.stringify({ type: "turn/end", seq: seq++, data: { turn: t, reason: { kind: "completed" } } }));
+  }
+  const d = join(dir, id);
+  mkdirSync(d, { recursive: true });
+  const p = join(d, "session.v4.jsonl");
+  writeFileSync(p, lines.join("\n"), "utf8");
+  return p;
+}
+
 const tmp = (): string => mkdtempSync(join(tmpdir(), "qdoc-cap-"));
 
 section("切窗：按 turns 分批");
@@ -138,6 +162,46 @@ section("凭据描述");
 {
   const d = describeCredentialSituation();
   ok(typeof d === "string" && d.length > 0, "能给出凭据状态描述");
+}
+
+section("手动触发跳过信号门（§6.5）");
+{
+  const root = tmp();
+  const file = makeChatter(root, 3);
+  const vault = initVault(join(root, "proj"));
+  const base = { sessionFile: file, vaultDir: vault.dir, skillDir: "/x", turns: 3 };
+
+  // 自动：纯闲聊被信号门拦下
+  const autoWins = planWindows(base);
+  eq(autoWins.length, 1, "切出 1 个窗口");
+  ok(!autoWins[0].signal.keep, "自动判定：不通过");
+  ok(!autoWins[0].forced, "自动：没有 forced 标记");
+
+  // 手动：forced 标记，且仍然保留真实信号判定
+  const manWins = planWindows({ ...base, manual: true });
+  eq(manWins.length, 1, "手动也切出 1 个窗口");
+  eq(manWins[0].forced, true, "手动：带 forced 标记");
+  ok(!manWins[0].signal.keep, "手动：signal 仍记真实判定（供 --plan 展示）");
+
+  rmSync(root, { recursive: true, force: true });
+}
+
+section("手动触发：纯闲聊也会被编译（不被信号门拒）");
+{
+  const root = tmp();
+  const file = makeChatter(root, 3);
+  const vault = initVault(join(root, "proj"));
+  const base = { sessionFile: file, vaultDir: vault.dir, skillDir: "/x", turns: 3, planOnly: true };
+
+  // 自动 plan：keep 为空
+  const auto = await runCapture(base);
+  ok(auto.status === "planned" && auto.queued.length === 0, "自动：没有窗口入队");
+
+  // 手动 plan：forced 生效
+  const man = await runCapture({ ...base, manual: true });
+  ok(man.status === "planned" && man.queued.length === 1, "手动：窗口入队（跳过信号门）", JSON.stringify(man));
+
+  rmSync(root, { recursive: true, force: true });
 }
 
 process.exit(summary());
