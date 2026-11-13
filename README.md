@@ -83,7 +83,7 @@ atoms → intake提案 → apply-patches(base_skill_sha自愈) → skills
 
 ## skill 保鲜（darwin 体检，双轨触发）
 
-满足任一轨即提示按 [skills/darwin-skill](skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `packages/core/scripts/darwin-check.ts --done <domain>` 记账。`darwin-check.ts` 裸跑可看报表：各 skill 加载/采纳率/修改计数与零使用（💀）标记。
+满足任一轨即提示按 [skills/darwin-skill](packages/core/skills/darwin-skill/SKILL.md) 做 rubric 9 维体检：paired 对比验证 + 投票棘轮（只保留实测不退步的修改）+ 人在回路确认。完成后 `packages/core/scripts/darwin-check.ts --done <domain>` 记账。`darwin-check.ts` 裸跑可看报表：各 skill 加载/采纳率/修改计数与零使用（💀）标记。
 
 ## 配置
 

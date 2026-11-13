@@ -4,7 +4,7 @@
  * 把"编译简报 + 选中卡片完整正文 + 写法指引"交给一次 LLM 调用，产出 SKILL.md draft。
  *
  * - 输入：编译简报（CompileBrief）+ 选中卡片的**完整**正文（简报里只截了 400 字，
- *   这里从 atoms.jsonl 按 atom_id 取全量）+ skills/create-skill/SKILL.md 作为写法指引；
+ *   这里从 atoms.jsonl 按 atom_id 取全量）+ packages/core/skills/create-skill/SKILL.md 作为写法指引；
  * - 输出：SKILL.md draft 字符串（**不直接落技能文件**；由 CLI 写到
  *   `<briefDir>/<skill>.draft.md`）；
  * - 质量环：调 validateSkillMd；不过就把 report.errors 回喂重写，**最多 2 次**；
@@ -37,7 +37,7 @@ export interface GenerateInput {
   brief: CompileBrief;
   /** 选中卡片的完整正文（从 atoms.jsonl 按 atom_id 取；简报里只截了 400 字） */
   cards: GenerateCard[];
-  /** 写法指引（skills/create-skill/SKILL.md 全文） */
+  /** 写法指引（packages/core/skills/create-skill/SKILL.md 全文） */
   writingGuide: string;
   /** 校验选项：domain / docTypes（主类型在前）/ bodyBudget / availableRefs */
   validateOpts: SkillValidateOptions;

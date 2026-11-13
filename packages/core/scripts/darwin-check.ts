@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * darwin-skill 体检记账（体检本体由 agent 按 skills/darwin-skill/SKILL.md 的流程执行）
+ * darwin-skill 体检记账（体检本体由 agent 按 packages/core/skills/darwin-skill/SKILL.md 的流程执行）
  * 用法：
  *   node --experimental-strip-types scripts/darwin-check.ts                # 查看各 skill 触发状态
  *   node --experimental-strip-types scripts/darwin-check.ts --done <domain> # 体检完成后记账（清零计数）

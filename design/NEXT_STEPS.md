@@ -86,12 +86,12 @@ node --experimental-strip-types packages/core/scripts/compile-skills.ts \
 
 现状：CLI 只产出[编译简报](SKILL_COMPILER.md)，正文交给 create-skill。目标是把它变成可重复执行的生成步骤。
 
-> 落地（2026-11-12）：`lib/generate-skill.ts` + `compile-skills.ts --generate`。输入=简报 + 选中卡片**完整**正文（`cardsForBrief` 按 atom_id 从 atoms.jsonl 取全量，简报里只截 400 字）+ `skills/create-skill/SKILL.md` 写法指引；输出=`<briefDir>/<skill>.draft.md`；质量环=`validateSkillMd` 不过回喂 `report.errors` 重写（`DEFAULT_MAX_REWRITES=2`）；DI=只调 `chatComplete`，mock 经 `setChatCompleter` 注入；不自动 `--apply`、不覆盖 agent-maintained。CLI 另加 `--home`/`--no-home`（与 pipeline 同链）让独立模式能解析 `~/.pi/agent/models.json` 凭据。
+> 落地（2026-11-12）：`lib/generate-skill.ts` + `compile-skills.ts --generate`。输入=简报 + 选中卡片**完整**正文（`cardsForBrief` 按 atom_id 从 atoms.jsonl 取全量，简报里只截 400 字）+ `packages/core/skills/create-skill/SKILL.md` 写法指引；输出=`<briefDir>/<skill>.draft.md`；质量环=`validateSkillMd` 不过回喂 `report.errors` 重写（`DEFAULT_MAX_REWRITES=2`）；DI=只调 `chatComplete`，mock 经 `setChatCompleter` 注入；不自动 `--apply`、不覆盖 agent-maintained。CLI 另加 `--home`/`--no-home`（与 pipeline 同链）让独立模式能解析 `~/.pi/agent/models.json` 凭据。
 
 设计要点：
 
 - 新参数：`compile-skills.ts --generate <brief.json>`（或 `--domain X --generate`），**绝不直接落 skill 文件**；
-- 输入：简报 JSON + 选中卡片的完整正文（从 `atoms.jsonl` 按 atom_id 取，简报里只截了 400 字）+ `skills/create-skill/SKILL.md` 作为写法指引；
+- 输入：简报 JSON + 选中卡片的完整正文（从 `atoms.jsonl` 按 atom_id 取，简报里只截了 400 字）+ `packages/core/skills/create-skill/SKILL.md` 作为写法指引；
 - 输出：`<briefDir>/<skill>.draft.md`；
 - 质量环：调用 `validateSkillMd`，不通过就把 `report.errors` 回喂重写，**最多 2 次**；仍不通过则保留 draft、打印错误、不生成提案；
 - 依赖注入：用 `setChatCompleter`（core 已有）注入模型调用，测试用 mock，不碰真实凭据；

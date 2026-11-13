@@ -148,10 +148,10 @@ function readText(path: string): string {
 }
 
 // ---------------- 写法指引（③ 正文生成用） ----------------
-// skills/create-skill/SKILL.md：通用技能写法（SDO 描述规则、章节结构、形式匹配失败类型）。
+// packages/core/skills/create-skill/SKILL.md：通用技能写法（SDO 描述规则、章节结构、形式匹配失败类型）。
 // 脚本在 packages/core/scripts/，repo 根在往上三级。
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const writingGuidePath = join(repoRoot, "skills", "create-skill", "SKILL.md");
+const writingGuidePath = join(repoRoot, "packages", "core", "skills", "create-skill", "SKILL.md");
 
 const FALLBACK_WRITING_GUIDE = [
   "# 写法指引（精简）",
