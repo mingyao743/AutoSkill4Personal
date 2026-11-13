@@ -304,10 +304,11 @@
 
 | 层 | 文件 | 职责 |
 |---|---|---|
-| **core** | `core/lib/capture-orchestration.ts`（新 234 行） | 全部 host 无关编排：`captureDeclaredAtom`（入卡，`extractedBy` 区分 pi/dsh）/ `kbStatusText` / `pendingNoticeText` / `shouldRunIncremental`+`runIncrementalPipeline`（待审≥30）/ `rescueOnCompact` / `spawnPipeline`+`pipelineSpawnArgs` |
-| **adapter-pi** | `knowledge-capture.ts`（482→222 行） | 只留 setHostContext + pi 4 钩子/3 工具注册 + ctx 取 entries/sessionId + spawn + 响应格式化；capture/harvest/compact 全调 core |
-| **adapter-dsh** | `tools.ts`（瘦 74 行净减） | capture_knowledge execute 调 `captureDeclaredAtom`（extractedBy=agent-tool-dsh）；kbStats 用 core（消除 pi/dsh drift）；只留 dsh 对接（spawn/dispatch/session-read/credential-routing） |
-| **adapter-dsh** | `compaction.ts`（未动） | 已合规：dsh messages 归一（docking）+ core `rescueAtoms`（无入卡逻辑重复） |
+| **core** | `core/lib/capture-orchestration.ts` | 全部 host 无关编排：`captureDeclaredAtom`（入卡，`extractedBy` 区分 pi/dsh）/ `kbStatusText` / `pendingNoticeText` / `shouldRunIncremental`+`runIncrementalPipeline`（待审≥5）/ `spawnPipeline`+`pipelineSpawnArgs` |
+| **adapter-pi** | `knowledge-capture.ts` | 只留 setHostContext + pi 3 钩子/3 工具注册 + ctx 取 entries/sessionId + spawn + 响应格式化；capture/harvest 全调 core |
+| **adapter-dsh** | `tools.ts` | capture_knowledge execute 调 `captureDeclaredAtom`（extractedBy=agent-tool-dsh）；kbStats 用 core（消除 pi/dsh drift）；只留 dsh 对接（spawn/dispatch/session-read/credential-routing） |
+
+**compaction 抢救通道已去掉**：原 5 入口里"唯一免审入口"（`session_before_compact`→`rescueAtoms` published floor 0.7）整条删除——它是最脆的宿主耦合（dsh compaction 引擎 ×3 形状约束）+ 唯一跳过 admission 的特例。删：core `compaction-rescue.ts`、adapter-dsh `compaction.ts`、adapter-pi `session_before_compact` hook、cordis.patch `autoskill-compaction` 条目、`@deepseek-ai/dsh-compaction-basic` 依赖。补偿：增量阈值 `PIPELINE_MIN_PENDING` 30→5，让管线及时覆盖（每轮仍 1 批/40k），避免消息被压缩丢弃前未处理。保留 `validate.ts` 枚举 + `compile-skill.ts` rescueRatio 对历史 atom 的向后兼容（优雅降级）。入口由 5→4。
 
 **验证**：smoke 31 PASS / 0 FAIL；`extractedBy` 实测 pi=`agent-tool` / dsh=`agent-tool-dsh`；两 adapter 导入只剩宿主依赖 + core 调用。
 

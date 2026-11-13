@@ -20,7 +20,7 @@ import {
   isDocType, keepAsForType, labelForType,
 } from "./admission.ts";
 import { validateAtom } from "./validate.ts";
-import { rescueAtoms, generateCompactionSummary } from "./compaction-rescue.ts";
+
 import { applyPatches, intakeDir } from "./apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "./skill-state.ts";
 import { compileDue } from "./compile-skill.ts";
@@ -40,8 +40,10 @@ export const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
 export const COMPILE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "compile-skills.ts");
 export const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
 
-/** 增量管线节流：待审消息少于本数不跑（唯一节流条件，不设时间下限） */
-export const PIPELINE_MIN_PENDING = 30;
+/** 增量管线节流：待审消息少于本数不跑。
+ *  原 30（compaction 抢救兜底时的节流）；抢救通道去掉后降到 5，让管线及时覆盖，
+ *  避免消息在被压缩丢弃前未被处理（每轮仍只 1 批/40k，成本可控）。 */
+export const PIPELINE_MIN_PENDING = 5;
 
 /** capture_knowledge 工具入参的 host 无关形状（adapter 用 TypeBox 包一层给宿主） */
 export interface CaptureDeclaration {
@@ -188,16 +190,6 @@ export async function runIncrementalPipeline(
   sessionId: string, entries: MessageEntry[], harness: "pi" | "dsh" = "pi",
 ): Promise<PipelineReport> {
   return runPipeline({ sessionId, entries, harness, maxBatches: 1, budgetTokens: 40_000 });
-}
-
-/** compaction 抢救编排（原 session_before_compact 主体）：rescue + summary，返回 savedIds + summary */
-export async function rescueOnCompact(
-  entries: MessageEntry[], sessionId: string, previousSummary: string, signal?: AbortSignal,
-): Promise<{ savedIds: string[]; summary: string }> {
-  const rescue = await rescueAtoms(entries, sessionId, signal);
-  const savedIds = rescue.savedAtoms.map((a) => a.atom_id);
-  const summary = await generateCompactionSummary(entries, previousSummary, savedIds, signal);
-  return { savedIds, summary };
 }
 
 /** detached spawn 知识管线 CLI 的参数（原 spawnPipeline 的 spawn 配置）；进程 spawn 本身仍由 adapter 做 */

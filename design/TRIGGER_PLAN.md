@@ -298,10 +298,10 @@ compaction → 只抽未覆盖缺口 → 知识卡片(origin=rescue, quarantine)
 | `lib/trigger-scan.ts` | 新增：压缩序列化 + LLM 批量过目 + 候选解析 + 召回审计 |
 | `lib/knowledge-extract.ts` | 新增：候选原文 → 知识卡片 |
 | `lib/extract-core.ts` | 抽出 `extractSegment()`，窗口/片段共用 |
-| `lib/compaction-rescue.ts` | 只抽 uncovered；quarantine；生成 rescue-digest |
+| `lib/compaction-rescue.ts` | ~~只抽 uncovered；quarantine；生成 rescue-digest~~（已删除：compaction 抢救通道去掉，见 PLATFORM_INTEGRATION_REVIEW §九） |
 | `lib/rescue-digest.ts` | 新增：摘要卡读写 + 产物级确认 |
 | `adapter-pi/knowledge-capture.ts` | 每轮后触发抽取触发机制（异步）；退出时知识抽取；harvest 只抽未覆盖 |
-| `adapter-dsh/src/compaction.ts` | 兜底逻辑同上 |
+| `adapter-dsh/src/compaction.ts` | ~~兜底逻辑同上~~（已删除：抢救通道去掉） |
 | `adapter-dsh/src/index.ts` | 定时抽取触发机制 + 定时知识抽取（无逐轮钩子） |
 | `scripts/extract.ts` | 默认 `--uncovered-only` |
 

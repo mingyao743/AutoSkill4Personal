@@ -9,12 +9,11 @@
  *   - detached spawn（进程管理）
  *   - 工具响应格式化
  *
- * 五入口（触发条件 + 如何抽取，全在 core）：
+ * 四入口（触发条件 + 如何抽取，全在 core）：
  *   1. capture_knowledge 工具 → core.captureDeclaredAtom
  *   2. kb_harvest 工具 → core.spawnPipeline（detached）
- *   3. session_before_compact → core.rescueOnCompact（唯一免审入口）
- *   4. session_shutdown(quit) → core.spawnPipeline（全量终采）
- *   5. 手动回填 → scripts/extract.ts（不经本 extension）
+ *   3. session_shutdown(quit) → core.spawnPipeline（全量终采）
+ *   4. 手动回填 → scripts/extract.ts（不经本 extension）
  *
  * 安装：pi package 机制（仓库根 package.json manifest）；推荐 `pi install ./AutoSkill` 或 git/npm 源。
  * 也可手工在 settings.json 的 extensions 数组写本文件绝对路径（不要符号链接：jiti 从注册路径解析相对导入）。
@@ -23,7 +22,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, SessionBeforeCompactEvent, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/llm.ts";
 import { appendUsage } from "../../packages/core/lib/usage-store.ts";
@@ -32,7 +31,7 @@ import { logError } from "../../packages/core/lib/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/types.ts";
 import {
   captureDeclaredAtom, kbStatusText, pendingNoticeText,
-  shouldRunIncremental, runIncrementalPipeline, rescueOnCompact, spawnPipeline,
+  shouldRunIncremental, runIncrementalPipeline, spawnPipeline,
   applyPatches, type CaptureDeclaration,
 } from "../../packages/core/lib/capture-orchestration.ts";
 
@@ -217,48 +216,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // ---------- 3. session_before_compact：compaction 抢救（唯一免审入口） → core.rescueOnCompact ----------
-  pi.on("session_before_compact", async (event: SessionBeforeCompactEvent, ctx) => {
-    const { preparation, signal } = event;
-    const { firstKeptEntryId, tokensBefore, previousSummary } = preparation;
-
-    // 被压缩区 = firstKeptEntryId 之前的 message entries（带真实 id，溯源用）
-    const allEntries = ctx.sessionManager.getEntries() as Array<{ type: string; id?: string; [k: string]: unknown }>;
-    const cutIdx = allEntries.findIndex((e) => e.id === firstKeptEntryId);
-    const toSummarize = (cutIdx === -1 ? allEntries : allEntries.slice(0, cutIdx))
-      .filter((e): e is MessageEntry => e.type === "message" && typeof e.id === "string");
-
-    if (toSummarize.length === 0) return; // 无可抢救，走默认 compaction
-
-    ctx.ui.notify(
-      `[knowledge-capture] compaction 抢救：${toSummarize.length} 条消息，抽取中（思考型模型可能需数分钟）…`,
-      "info",
-    );
-
-    let savedIds: string[];
-    let summary: string;
-    try {
-      const r = await rescueOnCompact(toSummarize, ctx.sessionManager.getSessionId(), previousSummary, signal);
-      savedIds = r.savedIds;
-      summary = r.summary;
-    } catch (err) {
-      logError(`compaction 抢救失败: ${String(err).slice(0, 300)}`);
-      ctx.ui.notify(`[knowledge-capture] 抢救失败，走默认压缩`, "warning");
-      return;
-    }
-
-    ctx.ui.notify(`[knowledge-capture] 抢救完成：${savedIds.length} 知识卡片已 published`, "info");
-    return {
-      compaction: {
-        summary,
-        firstKeptEntryId,
-        tokensBefore,
-        details: { atoms: savedIds, sessionFile: ctx.sessionManager.getSessionFile() },
-      },
-    };
-  });
-
-  // ---------- 4. session_shutdown(quit)：终采 ----------
+  // ---------- 3. session_shutdown(quit)：终采 ----------
   pi.on("session_shutdown", async (event: SessionShutdownEvent, ctx) => {
     if (event.reason !== "quit") return; // reload/new/resume/fork 不是会话终点，跳过
     const sessionFile = ctx.sessionManager.getSessionFile();

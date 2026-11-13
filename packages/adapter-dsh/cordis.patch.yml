@@ -1,19 +1,14 @@
 # The dsh-autoskill bundle patch: AutoSkill knowledge pipeline engine.
 # Applied after the profile's bundle layers; later user rows still override by id.
 #
-# Three plugins from one bundle (exports subpath shape, precedent:
+# Two plugins from one bundle (exports subpath shape, precedent:
 # dsh-plugin-manager/tools in dsh-base's own patch):
 #   autoskill            — main entry: skills (custom provider) + tools (capture_knowledge / kb_harvest)
-#   autoskill-compaction — ./compaction subpath: rescue engine (extends dsh-compaction-basic;
-#                          disable the basic row and this one takes over in the same isolate group)
 #   autoskill-assemble-timer — ./assemble-timer subpath: periodic cards rebuild
 #                          (opt-in via config.enabled; off by default)
 - insert:
     - id: autoskill
       name: dsh-autoskill
-
-    - id: autoskill-compaction
-      name: dsh-autoskill/compaction
 
     - id: autoskill-assemble-timer
       name: dsh-autoskill/assemble-timer

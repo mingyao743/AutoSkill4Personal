@@ -7,7 +7,6 @@
   "files": ["src", "cordis.patch.yml"],
   "exports": {
     ".": "./src/index.ts",
-    "./compaction": "./src/compaction.ts",
     "./assemble-timer": "./src/assemble-timer.ts"
   },
   "engines": { "dsh": ">=0.2.0-rc.2" },
@@ -16,14 +15,12 @@
     "@deepseek-ai/cordis": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:*",
     "@deepseek-ai/dsh-skill": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-compaction-basic": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:*",
     "@deepseek-ai/dsh-skill": "workspace:*",
-    "@deepseek-ai/dsh-tools": "workspace:*",
-    "@deepseek-ai/dsh-compaction-basic": "workspace:*"
+    "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }
