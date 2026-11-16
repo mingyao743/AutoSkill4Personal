@@ -14,7 +14,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { QdocMcpClient } from "../../../core/lib/publish/mcp.ts";
-import { scanSkillsDir, pushSkill, checkEligibility } from "../../../core/lib/publish/skill.ts";
+import { scanSkillsDir, pushSkill, checkEligibility, extractSkillDescription } from "../../../core/lib/publish/skill.ts";
 import { pullSkills, checkLight, describePull, readSkillDir, extractSkillFiles } from "../../../core/lib/sync/pull-skill.ts";
 import {
   recordPush, manifestStats, stalePendingEnable, hashSkillFiles,
@@ -97,8 +97,17 @@ export async function runSync(args: ParsedArgs): Promise<number> {
         const detail = (await client.getSkill(existing.id)) as { version?: number; files?: unknown[] };
         const remoteFiles = extractSkillFiles(detail);
         const same = remoteFiles.length > 0 && hashSkillFiles(remoteFiles) === hashSkillFiles(s.files);
-        if (same) {
+        const descSame = (existing.description ?? "") === desc;
+        if (same && descSame) {
           lines.push(`＝ ${s.name}：unchanged（内容与平台一致，未推）`);
+          continue;
+        }
+        if (same && !descSame) {
+          // 文件一字未变、只有 description 对不上（提取器曾把 YAML 折叠标量读成 ">"）。
+          // 这不是覆盖内容，是修坏值——不走确认队列，直接更 description。
+          const r = await pushSkill({ client, skill: s, platformSkills: light.available, description: desc });
+          if (r.action === "updated") pushed++;
+          lines.push(`→ ${s.name}：desc 修复（文件未变，仅更新 description，v${r.version ?? "?"}）`);
           continue;
         }
         // 用户说过「以后不再问」就照办（ow review 里按过 x）
@@ -182,9 +191,5 @@ function readSkillDescription(dir: string): string | null {
   const files = readSkillDir(dir);
   const skill = files.find((f) => f.path === "SKILL.md");
   if (!skill) return null;
-  const m = skill.content.match(/^---[\s\S]*?\ndescription:\s*(.+)$/m);
-  if (!m) return null;
-  const raw = m[1].trim().replace(/^["']|["']$/g, "");
-  // 平台 description 有长度限制，截到 500
-  return raw.slice(0, 500) || null;
+  return extractSkillDescription(skill.content);
 }

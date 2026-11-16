@@ -43,6 +43,51 @@ export interface SkillEligibility {
 }
 
 /**
+ * 从 SKILL.md 内容提取 frontmatter 的 description（平台 import/update 必填）。
+ *
+ * 支持 YAML 三种写法：
+ *   description: 单行文本          ← 大多数技能
+ *   description: "带引号文本"
+ *   description: >                 ← **折叠标量**，值在后续缩进行（caveman 就是这种；
+ *     后续行                          以前用单行正则只抓到 ">"，平台 description 就成了 ">"）
+ *   description: |                 ← 字面标量，换行保留
+ *
+ * 折叠规则按 YAML 语义：单换行并成空格。截到 500 字符（平台限制）。
+ */
+export function extractSkillDescription(content: string): string | null {
+  const fm = content.match(/^---[ \t]*\n([\s\S]*?)\n---/);
+  if (!fm) return null;
+  const lines = fm[1].split("\n");
+  const start = lines.findIndex((l) => /^description:/.test(l));
+  if (start < 0) return null;
+  const inline = lines[start].slice("description:".length).trim();
+
+  // 块标量：> 折叠 / | 保留，可带 chomping（-/+）与显式缩进数字
+  const bm = inline.match(/^([>|])[+-]?\d*[+-]?$/);
+  if (bm) {
+    const folded = bm[1] === ">";
+    const body: string[] = [];
+    let indent: number | null = null;
+    for (let i = start + 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.trim() === "") { body.push(""); continue; }
+      const ind = (l.match(/^ */) ?? [""])[0].length;
+      if (indent == null) indent = ind;
+      if (ind < indent) break; // 缩进回退 = 块结束（下一个 key）
+      body.push(l.trim());
+    }
+    while (body.length > 0 && body[body.length - 1] === "") body.pop();
+    const text = folded
+      ? body.join(" ").replace(/ {2,}/g, " ").trim()
+      : body.join("\n").trim();
+    return text.slice(0, 500) || null;
+  }
+
+  const raw = inline.replace(/^["']|["']$/g, "");
+  return raw.slice(0, 500) || null;
+}
+
+/**
  * 读本地技能目录。
  *
  * 只收 `SKILL.md` 与 `references/`、`scripts/`、`assets/` 下的文件——
@@ -201,8 +246,10 @@ export async function pushSkill(
 
       // 内容一字不差就别推：白白抬高版本号，还会让所有机器都以为「有更新」去拉一遍。
       // 刚从平台拉下来的技能再推上去，走的就是这条路。
+      // description 也要比：它不在 files 哈希里，提取器修好后要靠这条把平台上的坏值（如 ">"）修回来。
       const remoteFiles = extractSkillFiles(detail);
-      if (remoteFiles.length > 0 && hashSkillFiles(remoteFiles) === hashSkillFiles(skill.files)) {
+      const descChanged = String((existing as { description?: string }).description ?? "") !== opts.description;
+      if (remoteFiles.length > 0 && !descChanged && hashSkillFiles(remoteFiles) === hashSkillFiles(skill.files)) {
         return {
           name: skill.name,
           action: "unchanged",

@@ -55,6 +55,7 @@ ow status --json
 | `tools/list` 的清单/schema **可能漏报滞后** | 能力以实际调用为准；`list_document_tags`、update 的 filename 都曾不在清单里 |
 | 平台**无删除**（MCP 层）；可见性跟账号走，token 只管鉴权且**分权限**（todo:read 等） | 发出去就在线；doc_id 不可达=文档被删/迁移，发布器会自愈重建；报「缺少权限」= 要换带权限的新 token |
 | 技能 import 后默认**未启用** | 要人去 qdoc.chat 技能页点「启用」，这不是 bug |
+| 技能 description 由**平台自己按行解析** frontmatter，`update_skill` 传的 description 参数**不生效** | SKILL.md 的 description 必须写成**单行**（可带引号）；YAML 折叠标量 `>` 会被存成字面的 `">"` |
 
 ## 命令速查
 

@@ -49,3 +49,4 @@ ow todo projects                   # 项目与完成统计
 | 技能推上去看不见 | 平台落库默认未启用，要人到 qdoc.chat 点启用 |
 | MCP 报 502 | 平台网关抖动，ow 自带重试；仍失败等几分钟再试 |
 | 「令牌缺少权限 todo:read/write」 | token 是分权限的：去 qdoc.chat 重新生成 token（勾选待办权限）并更新 `~/.config/qdoc/token` |
+| 平台技能 description 显示成 `>` | SKILL.md 用了 YAML 折叠标量（`description: >` 换行写）；平台按行解析，只认单行。把 frontmatter 改成单行再 `ow sync --yes` |
