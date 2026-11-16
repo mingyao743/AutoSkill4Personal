@@ -1057,6 +1057,24 @@ ow sync status                  # 待推/可拉/待启用/待确认
   待确认 2 项（见 ow review）
 ```
 
+### 10.7b 多宿主接入（2026-11-16 调研）
+
+平台是中心，宿主不该只有 dsh/pi 两家。三家新宿主的接入面（均为官方文档实测结论）：
+
+| 宿主 | MCP 配置 | 技能安装 |
+|---|---|---|
+| Qoder CN CLI（阿里云） | `~/.qoder-cn/settings.json` 顶层 `mcpServers`，`http` 传输 + headers | `skills/<name>/SKILL.md`；优先级 内置<插件<项目级<用户级（推断用户级 `~/.qoder-cn/skills/`） |
+| CodeBuddy Code CLI（腾讯） | 同构 `mcpServers`（/docs/cli/mcp） | SKILL.md 技能系统（推断配置根 `~/.codebuddy/`） |
+| WorkBuddy 桌面版（腾讯） | 「连接器 → 自定义连接器」= MCP，UI 粘贴同款 JSON | 技能市场上传 zip / `.agents` 目录约定（未实测） |
+
+- 三家 MCP JSON **同构**（`mcpServers` + `type: http` + headers），`ow mcp-config
+  --host <qoder|codebuddy|workbuddy|raw>` 一次生成；只读工具进 `alwaysAllow`，
+  写操作保留逐次确认。token 换了重跑即可（命令不落盘）。
+- `install-skill` 宿主扩到四家；qoder/codebuddy 的绝对路径是推断，`/skills` 验证。
+- 分工：CLI 形态（Qoder/CodeBuddy）可跑完整 ow 工作流；WorkBuddy 是自包含任务制，
+  适合暴露「查 + 待办」这半边，capture 依赖会话内编译，对它无意义。
+- 安全：给新宿主单独发 token（按需勾 scope），可单独吊销。
+
 ### 10.8 这改变了什么
 
 | 原来 | 现在 |

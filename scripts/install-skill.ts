@@ -20,11 +20,18 @@ import { createHash } from "node:crypto";
 const REPO_ROOT = join(import.meta.dirname, "..");
 const SRC = join(REPO_ROOT, "agent-skills");
 
-type Host = "dsh" | "pi";
+type Host = "dsh" | "pi" | "qoder" | "codebuddy";
 
+// qoder / codebuddy 的用户级技能目录是**推断路径**（官方文档只给了
+// `skills/<name>/SKILL.md` 相对结构与优先级，未给绝对路径）：
+//   qoder     → 与 ~/.qoder-cn/settings.json 同层
+//   codebuddy → 与其 CLI 配置根同层
+// 装完在对应 CLI 里跑 /skills 验证；路径不对就改这里。
 const HOST_DIRS: Record<Host, string> = {
   dsh: join(homedir(), ".dsh", "skills"),
   pi: join(homedir(), ".pi", "agent", "skills"),
+  qoder: join(homedir(), ".qoder-cn", "skills"),
+  codebuddy: join(homedir(), ".codebuddy", "skills"),
 };
 
 function walk(dir: string, base = dir): string[] {
@@ -52,7 +59,7 @@ function main(): number {
   const args = process.argv.slice(2);
   const checkOnly = args.includes("--check");
   const hostArg = args.find((a) => a.startsWith("--host="))?.split("=")[1] as Host | undefined;
-  const hosts: Host[] = hostArg ? [hostArg] : ["dsh", "pi"];
+  const hosts: Host[] = hostArg ? [hostArg] : ["dsh", "pi", "qoder", "codebuddy"];
 
   if (!existsSync(SRC)) {
     process.stderr.write(`找不到源目录：${SRC}\n`);

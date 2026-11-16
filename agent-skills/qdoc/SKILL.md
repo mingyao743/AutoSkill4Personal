@@ -92,3 +92,5 @@ ow review                 # 处理待确认（交互）
 - `references/query.md` —— 查询策略与降级
 - `references/maintain.md` —— 知识库维护
 
+**多宿主**：本技能同时装在 dsh、pi、qoder（Qoder CN CLI）、codebuddy（CodeBuddy Code CLI）四家宿主（`npm run install-skill` 统一同步）。其它 agent 宿主接 qdoc 平台走 MCP：`ow mcp-config --host <宿主>` 生成配置片段；WorkBuddy 桌面版用连接器 UI 粘贴同款 JSON。
+

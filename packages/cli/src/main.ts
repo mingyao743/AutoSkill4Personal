@@ -26,6 +26,7 @@ import { runCaptureCmd } from "./commands/capture.ts";
 import { runPromote } from "./commands/promote.ts";
 import { runTodo } from "./commands/todo.ts";
 import { runDoc } from "./commands/doc.ts";
+import { runMcpConfig } from "./commands/mcp-config.ts";
 
 const HELP = `ow —— qdoc 知识库工具
 
@@ -43,6 +44,7 @@ const HELP = `ow —— qdoc 知识库工具
   maintain    重建 index.md / hot.md
   todo        平台待办（list/add/done/undone/edit/projects，纯透传）
   doc         已发布文档改名/改 tag（doc rename / doc tag）
+  mcp-config  生成各宿主（qoder/codebuddy/workbuddy）接 qdoc MCP 的 JSON
 
 选项：
   --vault <dir>   指定 vault（默认从 cwd 向上找）
@@ -74,6 +76,7 @@ async function main(): Promise<number> {
       case "promote": return await runPromote(args);
       case "todo": return await runTodo(args);
       case "doc": return await runDoc(args);
+      case "mcp-config": return await runMcpConfig(args);
       default:
         process.stderr.write(`未知命令：${args.command}\n\n${HELP}`);
         return 2;

@@ -39,6 +39,19 @@ ow todo projects                   # 项目与完成统计
 - todo 是纯透传：不进台账、不进编译窗口。平台无删除，加错就用 `done` 收掉。
 - `--project` 收项目名或 id；缺省落到「收件箱」。
 
+## 接入新 agent 宿主
+
+```bash
+ow mcp-config --host qoder > ~/.qoder-cn/settings.json   # Qoder CN CLI
+ow mcp-config --host codebuddy                            # CodeBuddy Code CLI（写入其 settings）
+ow mcp-config --host workbuddy                            # WorkBuddy 桌面版：粘贴到连接器 UI
+ow mcp-config --host raw                                  # 裸的 qdoc 服务器对象，嵌进已有配置
+```
+
+- 配置里 `alwaysAllow` 只放只读工具；写操作保留逐次确认。
+- token 换了就重跑一次（输出含 token，别贴到公开场合）。
+- 技能安装：`npm run install-skill` 同步四家宿主目录（`--check` 验漂移）。
+
 ## 排错速查
 
 | 症状 | 动作 |
