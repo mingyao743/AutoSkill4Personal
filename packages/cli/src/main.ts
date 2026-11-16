@@ -24,6 +24,8 @@ import { runReviewCmd } from "./commands/review.ts";
 import { runLink } from "./commands/link.ts";
 import { runCaptureCmd } from "./commands/capture.ts";
 import { runPromote } from "./commands/promote.ts";
+import { runTodo } from "./commands/todo.ts";
+import { runDoc } from "./commands/doc.ts";
 
 const HELP = `ow —— qdoc 知识库工具
 
@@ -39,6 +41,8 @@ const HELP = `ow —— qdoc 知识库工具
   review      处理待确认队列
   link        建 wiki -> .qdoc 软链
   maintain    重建 index.md / hot.md
+  todo        平台待办（list/add/done/undone/edit/projects，纯透传）
+  doc         已发布文档改名/改 tag（doc rename / doc tag）
 
 选项：
   --vault <dir>   指定 vault（默认从 cwd 向上找）
@@ -68,6 +72,8 @@ async function main(): Promise<number> {
       case "maintain": return await runMaintain(args);
       case "capture": return await runCaptureCmd(args);
       case "promote": return await runPromote(args);
+      case "todo": return await runTodo(args);
+      case "doc": return await runDoc(args);
       default:
         process.stderr.write(`未知命令：${args.command}\n\n${HELP}`);
         return 2;

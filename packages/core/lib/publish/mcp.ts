@@ -37,7 +37,12 @@ export type ToolName =
   | "read_document"
   | "read_document_content"
   | "create_document"
-  | "update_document";
+  | "update_document"
+  | "list_todo_projects"
+  | "list_todo_items"
+  | "create_todo_item"
+  | "update_todo_item"
+  | "complete_todo_item";
 
 export interface DocSummary {
   id: number | string;
@@ -56,6 +61,31 @@ export interface DocSummary {
 export interface SkillFile {
   path: string;
   content: string;
+}
+
+/** 待办项目（list_todo_projects） */
+export interface TodoProject {
+  id: string;
+  name: string;
+  color?: string;
+  is_archived?: boolean;
+  total_count?: number;
+  done_count?: number;
+}
+
+/** 待办事项（priority 0-3；version 供乐观锁） */
+export interface TodoItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  is_done?: boolean;
+  priority?: number;
+  due_date?: string | null;
+  project_id?: string;
+  project_name?: string;
+  version?: number;
+  source?: string;
+  updated_at?: string;
 }
 
 export interface SkillSummary {
@@ -81,9 +111,11 @@ export interface McpClientOptions {
  *   ② `<project>/.qdoc/.ow/token`（600）
  *   ③ `~/.config/qdoc/token`（600）
  *
- * 一个 token 通所有项目。注意（2026-11-16 实测）：token 除用户鉴权外
- * 还**绑定了生成时所在的命名空间**——重新生成 token 后可能看不到旧 token
- * 发的文档（旧 doc_id 不可达）。所以发布器对「doc_id 不可达」必须能自愈重建。
+ * 一个 token 通所有项目（可见性跟**账号**走，与哪台机器/哪个 token 发的无关——
+ * 2026-11-16 复测：A 机发的文档 B 机的 token 能读到）。token 会被吊销：
+ * 平台重新生成后旧 token 立即失效；平台 token 是**分权限**的（todo:read /
+ * todo:write 等），旧 token 可能没有新功能的权限。发布器对「doc_id 不可达」
+ * 自愈重建——不可达的根因是文档本身被删/迁移，不是 token。
  */
 export function resolveToken(opts: { vaultDir?: string } = {}): { token: string | null; source: string } {
   const env = process.env.QDOC_TOKEN?.trim();
@@ -268,6 +300,77 @@ export class QdocMcpClient {
       ...(input.content != null ? { content_md: input.content } : {}),
       ...(input.filename != null ? { filename: input.filename } : {}),
       ...(input.tags != null ? { tags: input.tags } : {}),
+    });
+  }
+
+  // ---------------- 待办（2026-11-16 上线，纯透传不记账） ----------------
+
+  async listTodoProjects(): Promise<TodoProject[]> {
+    const res = await this.callTool<{ projects?: TodoProject[] }>("list_todo_projects", {});
+    return res?.projects ?? [];
+  }
+
+  /** 默认只回未完成；`includeDone` 才含已完成 */
+  async listTodoItems(
+    opts: { projectId?: string; includeDone?: boolean; dueBefore?: string; limit?: number } = {},
+  ): Promise<TodoItem[]> {
+    const res = await this.callTool<{ items?: TodoItem[] }>("list_todo_items", {
+      limit: Math.min(opts.limit ?? 50, 200),
+      ...(opts.projectId ? { project_id: opts.projectId } : {}),
+      ...(opts.includeDone ? { include_done: true } : {}),
+      ...(opts.dueBefore ? { due_before: opts.dueBefore } : {}),
+    });
+    return res?.items ?? [];
+  }
+
+  /** priority 0-3；due_date `YYYY-MM-DD` 或 `YYYY-MM-DD HH:MM:SS`；不传 project 落到收件箱 */
+  async createTodoItem(input: {
+    title: string;
+    projectId?: string;
+    description?: string;
+    priority?: number;
+    dueDate?: string;
+  }): Promise<TodoItem> {
+    return this.callTool("create_todo_item", {
+      title: input.title,
+      ...(input.projectId ? { project_id: input.projectId } : {}),
+      ...(input.description != null ? { description: input.description } : {}),
+      ...(input.priority != null ? { priority: input.priority } : {}),
+      ...(input.dueDate ? { due_date: input.dueDate } : {}),
+    });
+  }
+
+  /** `base_version` 乐观锁必填——先 list 拿到 item 再改 */
+  async updateTodoItem(input: {
+    itemId: string;
+    baseVersion: number;
+    title?: string;
+    description?: string;
+    priority?: number;
+    dueDate?: string;
+    clearDueDate?: boolean;
+    projectId?: string;
+    isDone?: boolean;
+  }): Promise<TodoItem> {
+    return this.callTool("update_todo_item", {
+      item_id: input.itemId,
+      base_version: input.baseVersion,
+      ...(input.title != null ? { title: input.title } : {}),
+      ...(input.description != null ? { description: input.description } : {}),
+      ...(input.priority != null ? { priority: input.priority } : {}),
+      ...(input.dueDate != null ? { due_date: input.dueDate } : {}),
+      ...(input.clearDueDate ? { clear_due_date: true } : {}),
+      ...(input.projectId ? { project_id: input.projectId } : {}),
+      ...(input.isDone != null ? { is_done: input.isDone } : {}),
+    });
+  }
+
+  /** done=false 即取消完成；base_version 平台「建议传」不强制 */
+  async completeTodoItem(input: { itemId: string; done?: boolean; baseVersion?: number }): Promise<TodoItem> {
+    return this.callTool("complete_todo_item", {
+      item_id: input.itemId,
+      ...(input.done != null ? { done: input.done } : {}),
+      ...(input.baseVersion != null ? { base_version: input.baseVersion } : {}),
     });
   }
 

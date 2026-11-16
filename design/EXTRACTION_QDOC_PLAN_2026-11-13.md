@@ -692,8 +692,9 @@ tags:     p:<短名>（create 必打）          # ⚠ 平台 tag 上限 20 字�
 - `search_documents` 现在匹配**文件名和正文**，支持 `tag` 过滤
 - `update_document` 现在能**单独**改 filename / tags（乐观锁）
 - 「哪些文档是我们的」以**台账 doc_id** 为准；文件名不再承担认领职责
-- token 重新生成可能换命名空间（token 绑定生成时所在空间，实测）→
+- token 只管鉴权（可能被吊销），可见性跟账号走（11-16 复测：跨机互见）→
   发布器对「台账 doc_id 不可达」自愈：确认不存在 → 重建 + 刷新台账
+  （不可达根因 = 文档被删/迁移）
 - 存量两篇旧名文档**不迁移**（2026-11-16 拍板）；对账时旧名仍可识别
 
 ### 9.3 发布流程
@@ -838,13 +839,21 @@ updated_by: mbp-14
 | FS 备用通道 | ✅ `GET /api/fs/skills`（列表）+ `/api/fs/skills/<slug>/...`（读文件，只含已启用）；**带尾斜杠 401**；给无 MCP 的运行时用 | 技能 pull 的免 MCP 路径 |
 | 删除 | ❌ | 只能墓碑 |
 
-**token 绑命名空间**（2026-11-16 实测）：重新生成 token 后旧 token 立即失效，
-新 token 只见生成时所在空间的文档——旧 doc_id 不可达。发布器已做自愈
-（确认不存在 → 重建 + 刷台账），见 §9.2。
+**token 与可见性**（2026-11-16 两次实测，第二次修正第一次）：token 只负责
+鉴权（可能被吊销，吊销后全部调用报「无效或已过期」），**可见性跟账号走**——
+A 机发的文档 B 机的 token 能读到。token 另外是**分权限**的（`todo:read` /
+`todo:write` 等 scope），旧 token 没有新功能的权限，报「令牌缺少权限」。
+文档从列表消失 = 文档本身被删/迁移（不是 token 问题）。发布器对「doc_id
+不可达」自愈（确认不存在 → 重建 + 刷台账），见 §9.2。
 
-**todo 工具**：官方文档列了「创建/获取类」todo 管理，但 2026-11-16 线上
-1.30.0 **未上线**（`tools/list` 14 个工具无 todo，6 个候选名全 `Unknown tool`，
-新旧协议版本一致）。等上线后接入（设计已备：`ow todo` 子命令 + 唤醒词「小q 待办」）。
+**todo 工具**（2026-11-16 下午已上线，`tools/list` 共 20 个）：
+`list_todo_projects` / `list_todo_items`（默认未完成，`include_done` /
+`due_before`，limit≤200）/ `create_todo_item`（priority 0-3，due_date
+`YYYY-MM-DD[ HH:MM:SS]`）/ `update_todo_item`（**base_version 乐观锁**，可改
+title/desc/priority/due/project/is_done）/ `complete_todo_item`（done=false
+取消完成）。**调用需 token 带对应 scope**，旧 token 报「令牌缺少权限」。
+已接入：`ow todo list/add/done/undone/edit/projects`（纯透传，不进台账），
+唤醒词「小q 待办」。平台无删除，只有完成/取消完成。
 
 ### 10.4 文档：只推 + 在线查
 

@@ -73,7 +73,7 @@ function reportResults(
 
   for (const r of results) {
     const mark = r.action === "created" ? "＋" : r.action === "updated" ? "↻" : r.action === "skipped" ? "＝" : "✗";
-    lines.push(`${mark} ${r.pagePath} → ${r.action}${r.documentId ? ` (id=${r.documentId})` : ""}`);
+    lines.push(`${mark} ${r.pagePath} → ${r.action}${r.documentId ? ` (id=${r.documentId})` : ""}${r.filename ? ` 文件名 ${r.filename}` : ""}`);
     if (r.action === "blocked" || r.action === "failed") {
       for (const i of r.gate.issues.filter((x) => x.severity === "block")) {
         lines.push(`    ✗ [${i.gate}] ${i.message}`);
@@ -86,6 +86,12 @@ function reportResults(
     `合计：新建 ${by("created").length}、更新 ${by("updated").length}、` +
     `跳过 ${by("skipped").length}、拦截 ${by("blocked").length}、失败 ${by("failed").length}`,
   );
+  // 输出即引导：发布成功后把验证命令直接给出来，agent 不用再想下一步
+  const done = [...by("created"), ...by("updated")];
+  if (done.length > 0 && !dryRun) {
+    const kw = ((done[0].filename ?? done[0].pagePath).replace(/\.md$/, "").split("/").pop() ?? "").slice(0, 16);
+    lines.push(`验证：ow query "${kw}"`);
+  }
   if (orphans.length && !hasLedger) {
     lines.push("", `本地已删但平台可能还有 ${orphans.length} 页，可跑 --tombstone 处理`);
   }
