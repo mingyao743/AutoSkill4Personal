@@ -5,7 +5,7 @@
 ```
 经验侧   会话记录 ──抽取──▶ 知识卡片池 ──整合/编译──▶ skills/*.md ──darwin 体检──▶ 持续优化
                               │
-分发侧   skills ──ow 发布──▶ qdoc.chat 平台 ◀──查询/待办/技能同步── 各 agent 宿主
+分发侧   skills ──ow 发布──▶ qdoc 平台 ◀──查询/待办/技能同步── 各 agent 宿主
                               └─ 知识页 vault（.qdoc/）：门禁 7 道 → 平台文档（台账 + 自愈）
 ```
 
@@ -25,15 +25,23 @@
 
 命令细节全部在 [SKILL_COMPILER.md](design/SKILL_COMPILER.md)，不在 README 里堆。
 
-## 分发侧：ow CLI 与 qdoc 平台
+## qdoc：平台知识中心（分发侧）
 
-仓库内知识页 vault（`.qdoc/`：index/hot/references/skills/journal + `.publish/` 台账）经 `ow` CLI 推上 qdoc.chat 平台：
+**qdoc = qdoc.chat 平台 + ow CLI + qdoc 技能** 三件套，把仓库里的知识页与 skill 变成所有 agent 随查随用的在线资产：
 
-- **发布**：7 道本地门禁（干跑可见）→ 平台文档；doc_id 失配（文档被删/迁移）自动**自愈重建**；平台无删除，发出去就在线
-- **查询**：`ow query` 本地优先 + 平台兜底，按词降级重试
-- **待办**：平台 todo 纯透传（list/add/done/edit/projects），需 token 带 todo 权限
-- **文档字段**：`ow doc rename/tag`（台账同步、tag ≤20 字符截断告警）
-- **技能同步**：`ow sync` 与平台技能双向同步（推有门禁与确认队列，拉全量分批）
+- **平台**（qdoc.chat）：知识文档（发布/在线查询/改名/tag）+ 待办（todo）+ 技能市场（双向同步）。关键特性：**只有发布、没有删除**（下线只能打墓碑），发出去就在线；doc_id 是 UUID，台账记录认领关系，发现不可达自动**自愈重建**；文档可见性跟账号走，token 按功能分权限（`todo:read/write` 等 scope）
+- **ow CLI**（`packages/cli`）：仓库 vault（`.qdoc/`：index/hot/references/skills/journal + `.publish/` 台账）到平台的**唯一正道**——门禁、去重、台账都在里面，手写页面会绕过全部检查。发布过 7 道本地门禁；查询本地优先 + 平台兜底、按词降级重试；待办纯透传；`mcp-config` 一键生成各宿主的 MCP 接入配置
+- **qdoc 技能**（`agent-skills/qdoc`）：agent 侧的使用说明书，教 agent 正确用前两样——唤醒词、**平台事实卡**（tag ≤20 字符静默截断、`tools/list` 可能滞后、技能落库默认未启用……）、排错 playbook。四个宿主都已安装
+
+对话里直接说（宿主 agent 按 SKILL.md 行动，无需记命令）：
+
+| 说 | agent 做 |
+|---|---|
+| 「小q 沉淀」/「小q 查 X」/「小q 发布」 | `capture` / `query` / `publish` |
+| 「小q 待办」/「小q 记一下 X」 | `todo list` / `todo add` |
+| 「小q 状态」/「小q 确认」 | `status` / `review`（唯一不可回滚操作，必须人确认）|
+
+命令速查：
 
 ```bash
 npm run ow --silent -- status          # 水位/待发布/预算/锁/待确认
@@ -41,7 +49,6 @@ npm run ow --silent -- capture         # 编译当前会话 → 知识页
 npm run ow --silent -- publish --dry-run   # 门禁预检，再去掉 --dry-run 实发
 npm run ow --silent -- query "关键词"   # 查已发布文档
 npm run ow --silent -- todo list       # 平台待办
-npm run ow --silent -- doc tag <page> --add p:proj   # 改平台 tag
 ```
 
 全部命令见 `packages/cli/src/main.ts` HELP，常用流程一条龙见 [agent-skills/qdoc/references/playbook.md](agent-skills/qdoc/references/playbook.md)。
