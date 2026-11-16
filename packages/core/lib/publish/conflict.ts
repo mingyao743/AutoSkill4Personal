@@ -71,7 +71,7 @@ export async function recordConflict(
 
   let remoteText = "";
   try {
-    remoteText = await input.client.readDocumentContent(Number(input.remote.id));
+    remoteText = await input.client.readDocumentContent(input.remote.id);
   } catch (e) {
     remoteText = `<!-- 读取平台正文失败：${String(e).slice(0, 200)} -->`;
   }

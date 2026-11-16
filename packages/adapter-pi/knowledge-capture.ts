@@ -29,6 +29,7 @@ import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
 import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
+import { checkSkillDrift, describeDrift } from "../../packages/core/lib/sync/drift.ts";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -121,6 +122,14 @@ export default function (pi: ExtensionAPI) {
       }
     } catch (e) {
       logError(`session_start 应用提案失败: ${String(e).slice(0, 200)}`);
+    }
+    // 技能自检：宿主里的技能是实体拷贝，不会跟着仓库自动更新。
+    // 不一致时提醒一句；一致时完全安静。纯本地哈希比对，毫秒级。
+    try {
+      const msg = describeDrift(checkSkillDrift({ host: "pi" }));
+      if (msg) ctx.ui.notify(msg, "warning");
+    } catch (e) {
+      logError(`技能自检失败: ${String(e).slice(0, 200)}`);
     }
   });
 

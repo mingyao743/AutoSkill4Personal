@@ -672,17 +672,29 @@ skills/<domain>/
 `当前令牌已被轮换、处于宽限期（至 2026-11-13 21:22:07），到期后失效`。
 说明 token 有轮换机制，代码里要把这条 `_notice` 透出给用户，不能静默吞掉。
 
-### 9.2 无 namespace 的替代
+### 9.2 文件名与分组（2026-11-16 修订：去前缀）
 
-全部写入默认空间，用命名与标签分组：
+**旧规则已废**：`qdoc-<project>-<slug>.md` 的三个前提（search 只匹配文件名、
+update 改不了 tags、无 namespace 概念）在 2026-11-16 全部失效。
+
+新规则——文件名只管可读，分组靠 tag：
 
 ```
-filename: ow-<project>-<category>-<slug>.md
-tags: ow:project=<project>（必填）/ ow:cat=concepts / ow:type=doc|skill-ref
-# ow:status 只在 create 时写；后续改不了（平台限制），状态以本地账本为准
+filename: <category>-<slug>.md            # 页面路径扁平化，无前缀
+tags:     p:<短名>（create 必打）          # ⚠ 平台 tag 上限 20 字符，超长静默截断
 ```
 
-`search_documents` 按 filename/元数据匹配，前缀保证可检索；**精确匹配以账本为准**。
+> tag 上限实测：「project:autoskill4personal」(26 字符) 被截成
+> 「project:autoskill4pe」，按全名过滤永远命中 0。所以用 `p:` 前缀 +
+> 短名截 18 位，总计 ≤20。2026-11-16 已把存量两篇的截断 tag 换成新格式
+> （update_document 只传 tags 即可单独改 tag，实测 ✓）。
+
+- `search_documents` 现在匹配**文件名和正文**，支持 `tag` 过滤
+- `update_document` 现在能**单独**改 filename / tags（乐观锁）
+- 「哪些文档是我们的」以**台账 doc_id** 为准；文件名不再承担认领职责
+- token 重新生成可能换命名空间（token 绑定生成时所在空间，实测）→
+  发布器对「台账 doc_id 不可达」自愈：确认不存在 → 重建 + 刷新台账
+- 存量两篇旧名文档**不迁移**（2026-11-16 拍板）；对账时旧名仍可识别
 
 ### 9.3 发布流程
 
@@ -810,20 +822,29 @@ updated_by: mbp-14
 
 **技能必须拉**：技能是给 agent 加载执行的，不能每次执行都去平台取。必须落地成文件。
 
-### 10.3 平台能力边界（实测，2026-11-13）
+### 10.3 平台能力边界（实测，2026-11-13；**2026-11-16 复测有变**）
 
-| 能力 | 结果 | 用途 |
+| 能力 | 2026-11-16 实测 | 用途 |
 |---|---|---|
-| 枚举文档 | ✅ `list_documents`，`limit≤50` + `offset`，按 `updated_at` 倒序 | **在线查的目录** |
-| 检索文档 | ✅ `search_documents`（空 query 返回空，是检索不是枚举） | 在线查的入口 |
-| 读文档正文 | ✅ `read_document_content`，`max_chars` 默认 2 万、最大 10 万 | 在线查的正文 |
+| 枚举文档 | ✅ `list_documents`，`limit≤50` + `offset` + **`tag` 过滤**；id 已从数字改 **UUID**，多 `namespace`/`vectorized` 字段 | 在线查的目录 |
+| 检索文档 | ✅ `search_documents`：**文件名和正文**都匹配，支持 `tag` 过滤 | 在线查的入口 |
+| 标签汇总 | ✅ `list_document_tags` → `[{tag,count}]`（⚠ 不在 `tools/list` 里但能调用——**服务端清单不全，能力探测别依赖 tools/list**） | 项目分组统计 |
+| 读文档正文 | ✅ `read_document_content`，`max_chars` 可截断；返回 HTML 转文本 | 在线查的正文 |
+| 改文档 | ✅ `update_document`：**filename / tags / 正文三者可单独改**（乐观锁 `base_version`） | 改名、补 tag、正文更新 |
 | 枚举技能 | ✅ `list_available_skills`（只含已启用） | 技能同步的目录 |
-| 读技能全部文件 | ✅ `get_skill` 返回 `files[]`；实测一个技能 **114 文件 / 805k 字符** | 技能 pull |
-| 推文档 | ✅ `create/update_document` + `tags[]` + `base_version` | 已有 |
-| 推技能 | ✅ `import/update_skill`，**≤50 文件、单文件≤1MB、总量≤2MB** | 技能 push |
+| 读技能 | ✅ `get_skill`（全量 `files[]`）；新增 `read_skill_file`（单文件，二进制 base64） | 技能 pull |
+| 技能包 | ✅ 新增 `list_packages` / `get_package_manifest` / `read_package_file` | 包级安装清单 |
+| 推技能 | ✅ `import_skill_from_files`（文本/二进制/URL）；`update_skill` 乐观锁，「agent 自有技能直接生效，自建/预置进待审」 | 技能 push |
+| FS 备用通道 | ✅ `GET /api/fs/skills`（列表）+ `/api/fs/skills/<slug>/...`（读文件，只含已启用）；**带尾斜杠 401**；给无 MCP 的运行时用 | 技能 pull 的免 MCP 路径 |
 | 删除 | ❌ | 只能墓碑 |
 
-**`list_documents` 上线后，原先「靠本地清单猜平台有什么」的设计全部作废**——在线查直接翻页。
+**token 绑命名空间**（2026-11-16 实测）：重新生成 token 后旧 token 立即失效，
+新 token 只见生成时所在空间的文档——旧 doc_id 不可达。发布器已做自愈
+（确认不存在 → 重建 + 刷台账），见 §9.2。
+
+**todo 工具**：官方文档列了「创建/获取类」todo 管理，但 2026-11-16 线上
+1.30.0 **未上线**（`tools/list` 14 个工具无 todo，6 个候选名全 `Unknown tool`，
+新旧协议版本一致）。等上线后接入（设计已备：`ow todo` 子命令 + 唤醒词「小q 待办」）。
 
 ### 10.4 文档：只推 + 在线查
 

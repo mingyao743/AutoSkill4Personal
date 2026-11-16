@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLedger, recordFailure, recordPublish, shouldRetry, type LedgerEntry } from "./ledger.ts";
 import { describeGates, runGates, type GateResult } from "./gate.ts";
-import { toPlatformFilename } from "./naming.ts";
+import { toPlatformFilename, legacyFilename, projectTag } from "./naming.ts";
 import { renderForPublish, parseMetaComment } from "../vault/render.ts";
 import { bodyHash } from "../vault/frontmatter.ts";
 import { applyRedactPolicy, type RedactPolicy } from "../security/redact.ts";
@@ -85,8 +85,11 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
     contentHash: bodyHash(markdown),
   });
 
-  // 平台已有同标题文档？账本优先，其次预取的 existing，最后按 filename 查
-  const existing = opts.existing ?? await findExisting(opts, rendered.title);
+  // 平台已有同标题文档？账本优先（含可达性校验），其次按 filename 扫描
+  const found = opts.existing
+    ? { doc: opts.existing, healed: false }
+    : await findExisting(opts, rendered.title);
+  const existing = found.doc;
 
   const gate = runGates({
     path: opts.pagePath,
@@ -95,7 +98,8 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
     // 否则脱敏策略与门禁会互相打架（策略说放行，门禁又拦）。
     skipPrivacyGate: redactPolicy === "warn" || (redactPolicy === "replace" && redacted.replaced > 0),
     existing: existing ? { id: existing.id, filename: existing.filename, version: existing.version } : undefined,
-    publishedHash: entry?.body_hash,
+    // 自愈重建时**忘掉**上次发布哈希：平台文档已不在，hash 相等不该再触发 skip
+    publishedHash: found.healed ? undefined : entry?.body_hash,
     allowUpdate: true,
   });
 
@@ -119,16 +123,18 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
     };
   }
 
-  const filename = existing?.filename ?? toPlatformFilename(opts.pagePath, opts.projectRoot);
+  const filename = existing?.filename ?? toPlatformFilename(opts.pagePath);
+  // create 时打上项目 tag：search/list 都能按它过滤（前缀已废，分组靠 tag）
+  const createTags = [...new Set([...(rendered.tags ?? []), projectTag(opts.projectRoot)])];
 
   try {
     if (gate.action === "update" && existing) {
       const res = await opts.client.updateDocument({
-        documentId: Number(existing.id),
+        documentId: existing.id,
         content: rendered.text,
         baseVersion: existing.version ?? 1,
       });
-      const id = res?.doc_id ?? res?.id ?? Number(existing.id);
+      const id = res?.doc_id ?? res?.id ?? existing.id;
       recordPublish(opts.vaultDir, opts.pagePath, {
         document_id: id,
         filename,
@@ -150,7 +156,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
     const res = await opts.client.createDocument({
       filename,
       content: rendered.text,
-      tags: rendered.tags,
+      tags: createTags,
     });
     const id = res.doc_id ?? res.id;
     if (id == null) throw new Error(`create_document 未返回 id：${JSON.stringify(res)}`);
@@ -189,38 +195,70 @@ export async function publishPages(
 }
 
 /**
- * 找平台侧已有文档。
+ * 找平台侧已有文档。返回 `healed: true` 表示「台账里的 doc 已确认不存在，
+ * 本次要重建」——调用方应忘掉上次发布哈希，避免门禁误判 skip。
  *
- * 顺序：账本 document_id 直取 → 按 filename 前缀在 list_documents 里找。
- * 平台 `search_documents` 按语义搜，对 filename 不敏感，所以这里用 list 翻页找。
+ * 顺序：
+ *   1. 账本 document_id 直取——**先验可达性**（`read_document` 探一下）。
+ *      token 重新生成后命名空间可能变，旧 doc_id 会查无此文（2026-11-16 实测）。
+ *      只把「确认不存在」当自愈信号，认证/网络错误原样抛出（那类错误下
+ *      create 也会失败，不会造成重复创建）。
+ *   2. 按 filename 扫描（新旧两种形式都认）——兜「换了机器/台账丢了」。
+ *
+ * 平台 id 已是 UUID（旧数字 id 定义上不可达），`search_documents` 对 filename
+ * 不敏感，所以扫描用 list_documents 翻页。
  */
 async function findExisting(
   opts: PublishPageOptions,
   title: string,
-): Promise<DocSummary | undefined> {
+): Promise<{ doc?: DocSummary; healed: boolean }> {
   const ledger = readLedger(opts.vaultDir);
   const entry = ledger.pages[opts.pagePath];
   if (entry?.document_id != null) {
-    return {
-      id: entry.document_id,
-      filename: entry.filename,
-      version: entry.version,
-    };
+    // 平台 2026-11-16 起 doc_id 只收 UUID 字符串（实测 pydantic 报
+    // "Input should be a valid string"）——台账里的旧数字 id 定义上不可达，
+    // 直接重建，不浪费一次探测。
+    if (typeof entry.document_id === "number") {
+      recordFailure(opts.vaultDir, opts.pagePath,
+        `台账 doc_id ${entry.document_id} 是旧数字 id（平台已改 UUID），本次将重建`);
+      return { healed: true };
+    }
+    try {
+      const fresh = await opts.client.readDocument(entry.document_id);
+      // 平台侧为准（version 可能比台账新）
+      return {
+        doc: {
+          id: fresh.id ?? entry.document_id,
+          filename: fresh.filename || entry.filename,
+          version: fresh.version ?? entry.version,
+        },
+        healed: false,
+      };
+    } catch (e) {
+      const msg = String(e);
+      if (/不存在|not\s*found|找不到|无效|invalid|no such|validation error/i.test(msg)) {
+        recordFailure(opts.vaultDir, opts.pagePath,
+          `台账 doc_id ${entry.document_id} 不可达（${msg.slice(0, 80)}），本次将重建`);
+        return { healed: true };
+      }
+      throw e; // 认证/网络错误：让上层 recordFailure 兜住，不盲目重建
+    }
   }
 
-  const expected = toPlatformFilename(opts.pagePath, opts.projectRoot);
+  const expected = toPlatformFilename(opts.pagePath);
+  const legacy = legacyFilename(opts.pagePath, opts.projectRoot);
   try {
     for (let offset = 0; offset < 500; offset += 50) {
       const batch = await opts.client.listDocuments({ limit: 50, offset });
       if (batch.length === 0) break;
-      const hit = batch.find((d) => d.filename === expected);
-      if (hit) return hit;
+      const hit = batch.find((d) => d.filename === expected || d.filename === legacy);
+      if (hit) return { doc: hit, healed: false };
       if (batch.length < 50) break;
     }
   } catch {
     // 查不到就当新建；真撞了平台会报错，由 recordFailure 兜住
   }
-  return undefined;
+  return { healed: false };
 }
 
 function emptyGate(): GateResult {

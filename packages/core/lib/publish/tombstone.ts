@@ -94,7 +94,7 @@ export async function tombstonePage(opts: TombstoneOptions): Promise<TombstoneRe
 
   try {
     await opts.client.updateDocument({
-      documentId: Number(entry.document_id),
+      documentId: entry.document_id,
       content: body,
       baseVersion: entry.version ?? 1,
     });

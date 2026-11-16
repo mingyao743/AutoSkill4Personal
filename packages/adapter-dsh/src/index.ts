@@ -17,6 +17,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { setHostContext, hostContext } from "../../core/lib/base/context.ts";
 import { logError } from "../../core/lib/base/atom-store.ts";
 import { installDshLlm, type LlmBridgeConfig } from "./llm-bridge.ts";
+import { checkSkillDrift, describeDrift } from "../../core/lib/sync/drift.ts";
 import {
 	setDshHome, setAutoInit, getCurrentSessionFile, latestSessionFile, runCycle,
 } from "./tools.ts";
@@ -34,6 +35,13 @@ export interface Config {
 		/** 自动初始化 `.qdoc/`（默认 false：只往已有 vault 写） */
 		autoInit?: boolean;
 	};
+	/**
+	 * 启动时自检「宿主里装的技能 vs 仓库里的源」是否一致（默认开）。
+	 *
+	 * 代码跟着软链自动更新，技能是实体拷贝不会——不一致时打一行日志提醒重装。
+	 * 一致则**完全安静**，不给启动路径加噪音。
+	 */
+	skillDriftCheck?: boolean;
 }
 
 export const name = "autoskill";
@@ -64,6 +72,18 @@ export function apply(ctx: Context, config: Partial<Config> = {}) {
 	// 留着它只会往技能列表里塞一批旧主题，与 qdoc / ow-compiler 混淆。
 	setAutoInit(config.pipeline?.autoInit === true);
 	startPipelineTimer(ctx, config);
+
+	// 4. 技能自检（方案 §10.2 补）：宿主里的技能是实体拷贝，不会跟着仓库自动更新。
+	//    不一致时提醒一句；一致时完全安静。纯本地哈希比对，毫秒级。
+	if (config.skillDriftCheck !== false) {
+		try {
+			const drift = checkSkillDrift({ host: "dsh" });
+			const msg = describeDrift(drift);
+			if (msg) logError(msg);
+		} catch (e) {
+			logError(`[autoskill] 技能自检失败: ${String(e).slice(0, 200)}`);
+		}
+	}
 }
 
 /**

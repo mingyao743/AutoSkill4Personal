@@ -107,7 +107,7 @@ export async function runQuery(args: ParsedArgs): Promise<number> {
   for (const h of hits.slice(0, limit)) {
     let content = "";
     try {
-      content = await client.readDocumentContent(Number(h.id));
+      content = await client.readDocumentContent(h.id);
     } catch (e) {
       content = `（读取失败：${String(e).slice(0, 120)}）`;
     }

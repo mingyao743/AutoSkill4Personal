@@ -33,8 +33,20 @@ export interface SkillRecord {
   pushed_at?: string;
   /** 最后一次与平台对齐的时间 */
   synced_at: string;
-  /** 平台侧没有但本地有（被禁用/删除） */
+  /**
+   * 平台侧「已启用列表」里没有这个技能。
+   *
+   * 注意：`list_available_skills` **只返回已启用的**，所以「被禁用」和
+   * 「被删除」在它看来一模一样。要区分必须用 `get_skill(id)` 反查——
+   * 见 `sync/orphan.ts` 的 `classifyMissing()`。
+   */
   missing_on_platform?: boolean;
+  /** 反查结论：平台禁用了（技能还在，只是没启用） */
+  disabled_on_platform?: boolean;
+  /** 反查结论：平台真删了，本地还留着（孤儿） */
+  orphan?: boolean;
+  /** 反查时发现本地内容与 manifest 记的 sha 不一致（有本地改动，删了会丢） */
+  local_changes?: boolean;
 }
 
 export interface SkillManifest {

@@ -20,7 +20,12 @@ const PROTOCOL_VERSION = "2025-03-26";
 const CLIENT_NAME = "qdoc-wiki";
 const CLIENT_VERSION = "1.0.0";
 
-/** 平台工具名（10 个） */
+/**
+ * 平台工具名（2026-11-16 实测 15 个；这里只列用到的）。
+ *
+ * 注意：`tools/list` 会**漏报** `list_document_tags`（实测它不在清单里
+ * 但调用成功），所以能力探测不能依赖 tools/list，只能按调用报错判断。
+ */
 export type ToolName =
   | "list_available_skills"
   | "get_skill"
@@ -28,6 +33,7 @@ export type ToolName =
   | "update_skill"
   | "search_documents"
   | "list_documents"
+  | "list_document_tags"
   | "read_document"
   | "read_document_content"
   | "create_document"
@@ -75,7 +81,9 @@ export interface McpClientOptions {
  *   ② `<project>/.qdoc/.ow/token`（600）
  *   ③ `~/.config/qdoc/token`（600）
  *
- * 一个 token 通所有项目——平台没有 namespace，隔离靠 filename 前缀，不是靠 token。
+ * 一个 token 通所有项目。注意（2026-11-16 实测）：token 除用户鉴权外
+ * 还**绑定了生成时所在的命名空间**——重新生成 token 后可能看不到旧 token
+ * 发的文档（旧 doc_id 不可达）。所以发布器对「doc_id 不可达」必须能自愈重建。
  */
 export function resolveToken(opts: { vaultDir?: string } = {}): { token: string | null; source: string } {
   const env = process.env.QDOC_TOKEN?.trim();
@@ -178,32 +186,47 @@ export class QdocMcpClient {
 
   // ---------------- 文档 ----------------
 
-  async listDocuments(opts: { limit?: number; offset?: number } = {}): Promise<DocSummary[]> {
+  async listDocuments(
+    opts: { limit?: number; offset?: number; tag?: string } = {},
+  ): Promise<DocSummary[]> {
     const res = await this.callTool<{ documents?: DocSummary[] }>("list_documents", {
       limit: Math.min(opts.limit ?? 20, 50),
       offset: opts.offset ?? 0,
+      ...(opts.tag ? { tag: opts.tag } : {}),
     });
     return res?.documents ?? [];
   }
 
-  async searchDocuments(query: string, opts: { limit?: number } = {}): Promise<DocSummary[]> {
+  /** 检索：文件名**和正文**关键词；可按 tag 过滤（2026-11-16 实测） */
+  async searchDocuments(query: string, opts: { limit?: number; tag?: string } = {}): Promise<DocSummary[]> {
     const res = await this.callTool<{ documents?: DocSummary[] }>("search_documents", {
       query,
       limit: opts.limit ?? 10,
+      ...(opts.tag ? { tag: opts.tag } : {}),
     });
     return res?.documents ?? [];
+  }
+
+  /** 标签汇总：`[{tag, count}]`。不在 tools/list 里但能调用（服务端清单不全） */
+  async listDocumentTags(): Promise<Array<{ tag: string; count: number }>> {
+    const res = await this.callTool<{ tags?: Array<{ tag: string; count: number }> }>(
+      "list_document_tags", {},
+    );
+    return res?.tags ?? [];
   }
 
   /**
    * 文档元数据（含 tags）。**tags 只能从这里读**——
    * `list_documents` 返回的字段里没有 tags（实测）。
+   *
+   * id 已从数字改为 UUID（2026-11-16 实测），两种都收。
    */
-  async readDocument(id: number): Promise<DocSummary> {
+  async readDocument(id: number | string): Promise<DocSummary> {
     return this.callTool<DocSummary>("read_document", { doc_id: id });
   }
 
-  /** 参数名是 `doc_id`（整数），不是 document_id */
-  async readDocumentContent(id: number, maxChars?: number): Promise<string> {
+  /** 参数名是 `doc_id`，不是 document_id；id 兼容旧数字与 UUID */
+  async readDocumentContent(id: number | string, maxChars?: number): Promise<string> {
     const res = await this.callTool<{ content?: string; text?: string; content_md?: string } | string>(
       "read_document_content",
       { doc_id: id, ...(maxChars != null ? { max_chars: maxChars } : {}) },
@@ -212,13 +235,13 @@ export class QdocMcpClient {
     return res?.content_md ?? res?.content ?? res?.text ?? "";
   }
 
-  /** 参数名是 `content_md`；`tags` 只在 create 时能传（update 不收） */
+  /** 参数名是 `content_md`；tags 在 create 与 update 时都能传 */
   async createDocument(input: {
     filename: string;
     content: string;
     tags?: string[];
     namespaceId?: number;
-  }): Promise<{ id?: number; doc_id?: number; version?: number }> {
+  }): Promise<{ id?: number | string; doc_id?: number | string; version?: number }> {
     return this.callTool("create_document", {
       filename: input.filename,
       content_md: input.content,
@@ -227,16 +250,24 @@ export class QdocMcpClient {
     });
   }
 
-  /** `base_version` 必填（乐观锁）；不传平台会拒 */
+  /**
+   * `base_version` 必填（乐观锁）；不传平台会拒。
+   * `filename` / `tags` 可与正文**单独**改（2026-11-16 起）——
+   * 想只改名就别传 content_md，想只改 tag 就只传 tags。
+   */
   async updateDocument(input: {
-    documentId: number;
-    content: string;
+    documentId: number | string;
+    content?: string;
     baseVersion: number;
-  }): Promise<{ id?: number; doc_id?: number; version?: number }> {
+    filename?: string;
+    tags?: string[];
+  }): Promise<{ id?: number | string; doc_id?: number | string; version?: number }> {
     return this.callTool("update_document", {
       doc_id: input.documentId,
-      content_md: input.content,
       base_version: input.baseVersion,
+      ...(input.content != null ? { content_md: input.content } : {}),
+      ...(input.filename != null ? { filename: input.filename } : {}),
+      ...(input.tags != null ? { tags: input.tags } : {}),
     });
   }
 

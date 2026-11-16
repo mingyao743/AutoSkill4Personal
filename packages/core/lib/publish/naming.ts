@@ -1,20 +1,33 @@
 /**
- * 文件名前缀：平台没有 namespace，只能靠 filename 做逻辑分组。
+ * 平台文件名规则（2026-11-16 起去掉前缀，方案 §9.2 修订）。
  *
- * 规则（方案 §9.2）：`qdoc-<项目短名>-<页面名>.md`
+ * 旧规则 `qdoc-<项目短名>-<页面名>.md` 的三个前提都已失效：
+ *   - `search_documents` 现在匹配**文件名和正文**，还支持 tag 过滤（实测 schema）
+ *   - `update_document` 现在能单独改 filename / tags（乐观锁）
+ *   - 平台新增 `list_document_tags`，标签成了可汇总的一等元数据
  *
- * 为什么用前缀而不是 tag：`search_documents` / `list_documents` 都返回 filename，
- * 前缀能在**不读正文**的情况下过滤出本项目的文档；tag 在 `update_document` 时
- * 还改不了（平台只接受 create 时给 tags），靠 tag 分组会随时间漂移。
+ * 所以分组改用 tag（`project:<短名>`），文件名只承担「可读」这一个职责：
+ *   `skills/mcp-streamable-http-probe.md` → `skills-mcp-streamable-http-probe.md`
+ *
+ * 台账（.publish/ledger.json）仍然是「哪些文档是我们的」的权威来源，
+ * 文件名不再承担认领职责。
  */
 import { createHash } from "node:crypto";
-import { basename, dirname } from "node:path";
 
-export const FILENAME_PREFIX = "qdoc";
+/** 页面相对路径 → 平台 filename：扁平化、保留中英文、无前缀 */
+export function toPlatformFilename(pagePath: string): string {
+  return pagePath
+    .replace(/\.md$/, "")
+    .replace(/\//g, "-")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "") + ".md";
+}
 
 /** 项目短名：取项目目录名，转小写、非字母数字换 `-`，截断 24 字符 */
 export function projectSlug(projectRoot: string): string {
-  const name = basename(projectRoot)
+  const name = (projectRoot.split("/").pop() ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -23,36 +36,32 @@ export function projectSlug(projectRoot: string): string {
   return `p${createHash("sha1").update(projectRoot).digest("hex").slice(0, 8)}`;
 }
 
-/** vault 内相对路径 → 平台 filename */
-export function toPlatformFilename(pagePath: string, projectRoot: string): string {
-  const slug = projectSlug(projectRoot);
-  const flat = pagePath
-    .replace(/\.md$/, "")
-    .replace(/\//g, "-")
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `${FILENAME_PREFIX}-${slug}-${flat}.md`;
+/**
+ * 项目标签：create 时打上，search/list 都能按它过滤。
+ *
+ * 平台 tag **上限 20 字符**（超长静默截断，2026-11-16 实测：
+ * "project:autoskill4personal" 被截成 "project:autoskill4pe"，按全名过滤就
+ * 永远命中 0）。所以用短前缀 `p:` + 短名截到 18 位，总计恰好 ≤20。
+ */
+export function projectTag(projectRoot: string): string {
+  return `p:${projectSlug(projectRoot).slice(0, 18)}`;
 }
 
-/** 平台 filename → 是否属于本项目 */
-export function belongsToProject(filename: string, projectRoot: string): boolean {
-  return filename.startsWith(`${FILENAME_PREFIX}-${projectSlug(projectRoot)}-`);
+/** 旧规则文件名（2026-11-13 发布的两篇就是这个形式）；对账时还要认得它 */
+export function legacyFilename(pagePath: string, projectRoot: string): string {
+  const flat = toPlatformFilename(pagePath).replace(/\.md$/, "");
+  return `qdoc-${projectSlug(projectRoot)}-${flat}.md`;
 }
 
 /**
- * 反解：从 filename 猜回 vault 相对路径（只用于对账，不保证精确——
- * 分隔符 `-` 与路径里的 `-` 不可区分，所以对账以账本为准，这个只做兜底提示）。
+ * 反解：从平台 filename 猜回 vault 相对路径（对账兜底用）。
+ *
+ * 只认得旧前缀形式——新规则是**有损压缩**（`-` 既是路径分隔又是连字符），
+ * 反解不回去，对账以台账 doc_id 为准。
  */
 export function guessPagePath(filename: string, projectRoot: string): string | null {
-  const prefix = `${FILENAME_PREFIX}-${projectSlug(projectRoot)}-`;
+  const prefix = `qdoc-${projectSlug(projectRoot)}-`;
   if (!filename.startsWith(prefix)) return null;
   const rest = filename.slice(prefix.length).replace(/\.md$/, "");
   return rest ? `${rest}.md` : null;
-}
-
-/** 目录名（诊断用：告诉我们一页本来在哪个分类下） */
-export function categoryOf(pagePath: string): string {
-  return dirname(pagePath).split("/")[0] ?? "";
 }
