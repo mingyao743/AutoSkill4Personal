@@ -18,7 +18,7 @@ import type { SkillFile } from "../publish/mcp.ts";
 import { machineDir } from "../trigger/lock.ts";
 import { HOST_DIRS, type HostName } from "./install.ts";
 
-const HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy"];
+const HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy", "opencode"];
 
 /** 一个技能在本机的状态 */
 export interface SkillRecord {

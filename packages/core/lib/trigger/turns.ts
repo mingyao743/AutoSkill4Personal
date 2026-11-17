@@ -62,12 +62,14 @@ const isPiUserMessage = (e: RawEvent): boolean =>
  *
  * @param events 原始会话事件（已按行序）
  * @param sessionId 会话 id（只写进结果，不参与计算）
- * @param agent 宿主类型；决定用哪套轮次信号
+ * @param agent 宿主类型；决定用哪套轮次信号。
+ *        opencode 沿用 pi 语义：用户消息开轮（adapter-opencode 把
+ *        ctx.session.context() 归一成同一种 message 事件流）。
  */
 export function indexTurns(
   events: RawEvent[],
   sessionId: string,
-  agent: "dsh" | "pi",
+  agent: "dsh" | "pi" | "opencode",
 ): TurnIndex {
   return agent === "dsh"
     ? indexDshTurns(events, sessionId)

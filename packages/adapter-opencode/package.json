@@ -1,0 +1,20 @@
+{
+  "name": "autoskill-adapter-opencode",
+  "version": "0.1.0",
+  "description": "AutoSkill (qdoc) knowledge-capture plugin for OpenCode: 会话知识自动编译、技能双向同步、会话模型直连",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "keywords": [
+    "opencode-plugin",
+    "autoskill",
+    "qdoc",
+    "knowledge-capture"
+  ],
+  "dependencies": {
+    "@opencode/plugin": "latest"
+  },
+  "private": true
+}

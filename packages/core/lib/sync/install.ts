@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { machineDir } from "../trigger/lock.ts";
 
-export type HostName = "dsh" | "pi" | "qoder" | "codebuddy";
+export type HostName = "dsh" | "pi" | "qoder" | "codebuddy" | "opencode";
 
 /** 各宿主放技能的位置（与 install-skill 原来同一口径） */
 export const HOST_DIRS: Record<HostName, string> = {
@@ -26,6 +26,7 @@ export const HOST_DIRS: Record<HostName, string> = {
   pi: join(homedir(), ".pi", "agent", "skills"),
   qoder: join(homedir(), ".qoder-cn", "skills"),
   codebuddy: join(homedir(), ".codebuddy", "skills"),
+  opencode: join(homedir(), ".config", "opencode", "skills"),
 };
 
 export function hostSkillDir(host: HostName): string {

@@ -48,7 +48,7 @@ export type CycleOutcome =
   | { status: "error"; error: string };
 
 export interface CycleInput {
-  agent: "dsh" | "pi";
+  agent: "dsh" | "pi" | "opencode";
   sessionId: string;
   /** 会话事件（已归一：seq 必须存在） */
   events: Array<Record<string, unknown>>;
@@ -64,6 +64,11 @@ export interface CycleInput {
   autoInit?: boolean;
   /** 编译使用的模型（dsh 从会话 request/header 读，pi 不传） */
   model?: string;
+  /**
+   * 手动触发（小q 沉淀 / qdoc_capture 工具）：跳过信号门（方案 §6.5）。
+   * 30 轮闸、预算闸、两级锁照常——手动只是表达「这次别降噪」。
+   */
+  manual?: boolean;
 }
 
 /**
@@ -116,8 +121,12 @@ async function runWindow(
     turns: win,
   });
 
-  const signal = evaluateSignal(payload);
-  if (!signal.keep) return { status: "no-signal", signal };
+  // 信号门：手动触发跳过（方案 §6.5）——用户明确叫了就是要记，
+  // 「纯检索」「短闲聊」降噪规则不适用，再拒绝就是违背直觉。
+  if (!input.manual) {
+    const signal = evaluateSignal(payload);
+    if (!signal.keep) return { status: "no-signal", signal };
+  }
 
   // dsh 的 turn/end 是完整轮界，可以安全等到空闲再编；pi 的 before_agent_start
   // 没有会话结束钩子，若也要求空闲，用户停下后这一窗就永远等不到下一次触发。

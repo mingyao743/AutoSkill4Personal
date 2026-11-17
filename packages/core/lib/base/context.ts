@@ -10,7 +10,7 @@
  *  - 未注入时 hostContext() 返回 null——调用方（core 内部）必须显式处理，
  *    而不是静默回退到某个宿主路径（那会重新耦合）
  */
-export type HostKind = "pi" | "dsh" | "cli";
+export type HostKind = "pi" | "dsh" | "cli" | "opencode";
 
 export interface HostContext {
   /** 宿主种类：决定日志措辞与诊断指引，不参与路径计算 */

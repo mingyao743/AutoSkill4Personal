@@ -26,7 +26,7 @@ import { needVault, out } from "../vault-ctx.ts";
 import { flagBool, flagString, type ParsedArgs } from "../args.ts";
 import { HOST_DIRS, hostSkillDir, type HostName } from "../../../core/lib/sync/install.ts";
 
-const SYNC_HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy"];
+const SYNC_HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy", "opencode"];
 
 /** 本地技能目录（宿主不同位置不同；与 install-skill / drift 共用一份 HOST_DIRS） */
 export function localSkillsDir(host: string): string {

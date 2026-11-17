@@ -48,8 +48,10 @@ export interface CaptureOptions {
    * 而手动触发已经花了用户一次表达成本，再拒绝就是违背直觉。
    */
   manual?: boolean;
-  /** 宿主；不传时按文件路径自动识别（pi 会话 vs dsh 会话） */
-  agent?: "dsh" | "pi";
+  /** 宿主；不传时按文件路径自动识别（pi 会话 vs dsh 会话）。
+   *  opencode 会话不走本模块（live 会话由 adapter-opencode 直接喂 maybeCompile），
+   *  联合类型保持同宽只为下游 cycle/window 类型对齐。 */
+  agent?: "dsh" | "pi" | "opencode";
 }
 
 export type CaptureOutcome =
@@ -118,7 +120,7 @@ function messageIdOf(e: Record<string, unknown>): string | undefined {
 }
 
 interface LoadedSession {
-  agent: "dsh" | "pi";
+  agent: "dsh" | "pi" | "opencode";
   sessionId: string;
   cwd: string;
   events: Array<Record<string, unknown>>;

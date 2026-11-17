@@ -31,7 +31,7 @@ export function statePath(vaultDir: string): string {
 }
 
 /** 会话键：`<agent>:<sessionId>`，两套宿主可能撞 id（都是 uuid），必须带前缀 */
-export function sessionKey(agent: "dsh" | "pi", sessionId: string): string {
+export function sessionKey(agent: "dsh" | "pi" | "opencode", sessionId: string): string {
   return `${agent}:${sessionId}`;
 }
 

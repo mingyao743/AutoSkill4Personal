@@ -10,7 +10,7 @@
 import { existsSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { checkSkillDrift, describeDrift, findRepoRoot, type HostName } from "../../../core/lib/sync/drift.ts";
+import { checkSkillDrift, describeDrift, findRepoRoot, hostSkillDir, type HostName } from "../../../core/lib/sync/drift.ts";
 import { zstdStatus } from "../../../core/lib/trigger/session-file.ts";
 import { readAutoSyncState, localTime } from "../../../core/lib/sync/auto-check.ts";
 import { resolveToken } from "../../../core/lib/publish/mcp.ts";
@@ -113,6 +113,32 @@ function checkPi(issues: Issue[], lines: string[]): void {
   }
 }
 
+/** opencode：目录在不在 + 插件装没装（opencode 本体没装时只提示，不算错误） */
+function checkOpencode(issues: Issue[], lines: string[]): void {
+  const skillsDir = hostSkillDir("opencode");
+  const skillsOk = existsSync(skillsDir);
+  lines.push(`  skills 目录: ${skillsDir}（${skillsOk ? "ok" : "未安装"}）`);
+  if (!skillsOk) {
+    issues.push({
+      level: "warn", area: "opencode",
+      message: `opencode 技能目录不存在：${skillsDir}`,
+      fix: `npm run install-skill -- --host opencode`,
+    });
+  }
+  const dataDir = join(homedir(), ".config", "qdoc", "knowledge", "opencode");
+  lines.push(`  知识数据目录: ${dataDir}（${existsSync(dataDir) ? "ok" : "首跑自动创建"}）`);
+  const pluginDir = join(homedir(), ".config", "opencode", "plugins", "autoskill-opencode");
+  const pluginOk = existsSync(pluginDir);
+  lines.push(`  插件目录: ${pluginDir}（${pluginOk ? "ok" : "未安装"}）`);
+  if (!pluginOk) {
+    issues.push({
+      level: "warn", area: "opencode",
+      message: "adapter-opencode 插件未安装到 ~/.config/opencode/plugins",
+      fix: "见 packages/adapter-opencode/README.md（软链或复制 packages/adapter-opencode）",
+    });
+  }
+}
+
 function checkRuntime(issues: Issue[], lines: string[]): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
   const nodeOk = major > 22 || (major === 22 && minor >= 6);
@@ -180,11 +206,12 @@ function checkToken(issues: Issue[], lines: string[]): void {
 
 export async function runDoctor(args: ParsedArgs): Promise<number> {
   const hostArg = flagString(args, "host") ?? "all";
-  if (!["all", "dsh", "pi"].includes(hostArg)) {
-    process.stderr.write(`未知宿主：${hostArg}（可选 all|dsh|pi）\n`);
+  if (!["all", "dsh", "pi", "opencode"].includes(hostArg)) {
+    process.stderr.write(`未知宿主：${hostArg}（可选 all|dsh|pi|opencode）\n`);
     return 2;
   }
-  const hosts: HostName[] = hostArg === "all" ? ["dsh", "pi"] : [hostArg as HostName];
+  const hosts: HostName[] =
+    hostArg === "all" ? ["dsh", "pi", "opencode"] : [hostArg as HostName];
   const lines: string[] = [`环境自检（host=${hostArg}）：`, ""];
   const issues: Issue[] = [];
 
@@ -198,6 +225,10 @@ export async function runDoctor(args: ParsedArgs): Promise<number> {
   if (hosts.includes("pi")) {
     lines.push("", "pi：");
     checkPi(issues, lines);
+  }
+  if (hosts.includes("opencode")) {
+    lines.push("", "opencode：");
+    checkOpencode(issues, lines);
   }
 
   lines.push("", "CLI / 凭据：");

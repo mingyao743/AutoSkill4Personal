@@ -19,7 +19,7 @@ export const TOOL_RESULT_MAX_CHARS = 2_000;
 /** 落盘的窗口（编译器的唯一输入） */
 export interface WindowPayload {
   schema: 1;
-  agent: "dsh" | "pi";
+  agent: "dsh" | "pi" | "opencode";
   session_id: string;
   cwd: string;
   from_seq: number;
@@ -43,7 +43,7 @@ export interface WindowMessage {
 }
 
 export interface BuildWindowOptions {
-  agent: "dsh" | "pi";
+  agent: "dsh" | "pi" | "opencode";
   sessionId: string;
   cwd: string;
   /** 整段会话的消息（已归一成 MessageEntry，带 seq） */
