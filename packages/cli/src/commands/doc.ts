@@ -18,7 +18,7 @@ import {
 import { nextTags, resolveDocTarget, syncLedgerFilename } from "../../../core/lib/todo.ts";
 import { projectTag } from "../../../core/lib/publish/naming.ts";
 import {
-  getUpload, hashFileBytes, listUploads, recordUpload,
+  getUpload, hashFileBytes, listUploads, recordUpload, syncUploadFilename, syncUploadTags,
 } from "../../../core/lib/publish/upload-ledger.ts";
 import { needVault, out, isJson } from "../vault-ctx.ts";
 import { flagBool, flagString, type ParsedArgs } from "../args.ts";
@@ -229,10 +229,11 @@ export async function runDoc(args: ParsedArgs): Promise<number> {
     });
     const version = res.version;
     const ledgerSynced = pagePath ? syncLedgerFilename(vault.dir, docId, filename) : false;
+    const uploadSynced = syncUploadFilename(vault.dir, docId, filename);
     out(args,
       `✓ 改名：${cur.filename || "(原名为空)"} → ${filename}（v${version ?? "?"}）` +
-      `${ledgerSynced ? "\n  台账已同步" : ""}\n  验证：ow query "${filename.replace(/\.md$/, "").slice(0, 12)}"`,
-      { docId, filename, version });
+      `${ledgerSynced || uploadSynced ? "\n  台账已同步" : ""}\n  验证：ow query "${filename.replace(/\.md$/, "").slice(0, 12)}"`,
+      { docId, filename, version, ledgerSynced, uploadSynced });
     return 0;
   }
 
@@ -251,11 +252,12 @@ export async function runDoc(args: ParsedArgs): Promise<number> {
       baseVersion: cur.version ?? 1,
       tags,
     });
+    const uploadSynced = syncUploadTags(vault.dir, docId, tags);
     const human = [
       ...warnings,
-      `✓ tags（v${res.version ?? "?"}）：${tags.join("、") || "（已清空）"}`,
+      `✓ tags（v${res.version ?? "?"}）：${tags.join("、") || "（已清空）"}${uploadSynced ? "（上传台账已同步）" : ""}`,
     ].join("\n");
-    if (isJson(args)) out(args, human, { docId, tags, warnings });
+    if (isJson(args)) out(args, human, { docId, tags, warnings, uploadSynced });
     else out(args, human);
     return 0;
   }

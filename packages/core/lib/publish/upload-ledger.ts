@@ -69,6 +69,32 @@ export function recordUpload(vaultDir: string, entry: UploadEntry): void {
   writeUploadLedger(vaultDir, ledger);
 }
 
+/** 平台 tag 被改后同步台账（按 doc_id 找） */
+export function syncUploadTags(vaultDir: string, documentId: number | string, tags: string[]): boolean {
+  const ledger = readUploadLedger(vaultDir);
+  let changed = false;
+  for (const entry of Object.values(ledger.files)) {
+    if (entry.document_id !== documentId) continue;
+    entry.tags = [...tags];
+    changed = true;
+  }
+  if (changed) writeUploadLedger(vaultDir, ledger);
+  return changed;
+}
+
+/** 平台文件名被改后同步台账 */
+export function syncUploadFilename(vaultDir: string, documentId: number | string, filename: string): boolean {
+  const ledger = readUploadLedger(vaultDir);
+  let changed = false;
+  for (const entry of Object.values(ledger.files)) {
+    if (entry.document_id !== documentId) continue;
+    entry.filename = filename;
+    changed = true;
+  }
+  if (changed) writeUploadLedger(vaultDir, ledger);
+  return changed;
+}
+
 export function listUploads(vaultDir: string): UploadEntry[] {
   return Object.values(readUploadLedger(vaultDir).files).sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
 }

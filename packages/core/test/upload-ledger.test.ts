@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ok, eq, section, summary } from "./_harness.ts";
 import {
   getUpload, hashFileBytes, listUploads, readUploadLedger, recordUpload,
+  syncUploadFilename, syncUploadTags,
 } from "../lib/publish/upload-ledger.ts";
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), "qdoc-upload-"));
@@ -35,6 +36,22 @@ section("记录/读取/列出");
   eq(getUpload(vault, hash)?.document_id, "doc-1", "按 hash 取回");
   eq(readUploadLedger(vault).files[hash].filename, "a.pdf", "落盘内容");
   eq(listUploads(vault).length, 1, "列出");
+  rmSync(vault, { recursive: true, force: true });
+}
+
+section("tag/rename 同步台账");
+{
+  const vault = tmp();
+  const hash = hashFileBytes(Buffer.from("sync-me"));
+  recordUpload(vault, {
+    file_hash: hash, document_id: "doc-9", filename: "old.pdf", size: 1, tags: ["p:x"],
+    sensitive_warnings: [], is_safe: false, uploaded_at: "2026-11-17T00:00:00.000Z",
+  });
+  ok(syncUploadTags(vault, "doc-9", ["game", "bangbang1983"]), "tag 同步命中");
+  eq(getUpload(vault, hash)?.tags, ["game", "bangbang1983"], "tags 已更新");
+  ok(syncUploadFilename(vault, "doc-9", "new.pdf"), "filename 同步命中");
+  eq(getUpload(vault, hash)?.filename, "new.pdf", "filename 已更新");
+  eq(syncUploadTags(vault, "other", ["x"]), false, "不存在的 doc 不写");
   rmSync(vault, { recursive: true, force: true });
 }
 
