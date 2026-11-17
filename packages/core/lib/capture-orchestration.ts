@@ -3,12 +3,12 @@
  *
  * 旧的 atoms 抽取管线（shouldExtractOnTurn / runScheduledExtraction）已彻底删除，
  * 自动编译走 core/trigger/cycle.ts 的 maybeCompile（30 轮闸 → 信号门 → 两级锁 → 进程内编译）。
- * 本模块只保留：kbStatusText（状态）、pendingNoticeText（注入提示）、applyPatches（提案队列）。
+ * 本模块只保留：pendingNoticeText（注入提示）、applyPatches（提案队列）。
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  atomsPath, loadAtoms, logError,
+  loadAtoms, logError,
 } from "./base/atom-store.ts";
 
 import { applyPatches, intakeDir } from "./skill/apply-patches.ts";
@@ -25,23 +25,6 @@ export const DARWIN_SKILL = join(REPO_ROOT, "packages", "core", "skills", "darwi
 export const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
 export const COMPILE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "compile-skills.ts");
 export const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
-
-/** 知识库状态文本（原 kbStats）：atoms 计数 / 待整合 / 体检待触发 / 可编译 / 路径 */
-export function kbStatusText(): string {
-  const atoms = loadAtoms();
-  const draft = atoms.filter((a) => a.status === "draft").length;
-  const published = atoms.filter((a) => a.status === "published").length;
-  const pend = pendingSummary();
-  const due = darwinDue().map((d) => `${d.domain}(${d.trigger || d.edits})`).join(", ") || "无";
-  const compile = compileDue(atoms, lastCompileHashes(), { limit: 10_000 }).map((d) => d.skillName).join(", ") || "无";
-  return (
-    `atoms: ${atoms.length}（draft ${draft} / published ${published}）\n` +
-    `待整合: ${pend.total}${pend.total ? `（${Object.entries(pend.byDomain).map(([d, n]) => `${d}:${n}`).join(", ")})` : ""}\n` +
-    `体检待触发: ${due}\n` +
-    `可编译: ${compile}\n` +
-    `路径: ${atomsPath()}`
-  );
-}
 
 /** 注入给 agent 的提示（原 pendingNotice）：待整合超阈值/体检/编译三段，无则 undefined */
 export function pendingNoticeText(): string | undefined {

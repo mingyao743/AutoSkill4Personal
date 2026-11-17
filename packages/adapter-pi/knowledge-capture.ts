@@ -3,7 +3,7 @@
  *
  * 抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
  *   - setHostContext（pi 路径注入）
- *   - 注册 pi 钩子/命令（session_start / before_agent_start / tool_call / kb / kb_doctor）
+ *   - 注册 pi 钩子/命令（session_start / before_agent_start / tool_call / kb_doctor）
  *   - 从 ctx 取 entries/sessionId（宿主形状）
  *   - detached spawn（进程管理）
  *   - 工具响应格式化
@@ -26,6 +26,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/base/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/base/llm.ts";
 import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
+import { logError } from "../../packages/core/lib/base/atom-store.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
 import { checkSkillDrift, describeDrift } from "../../packages/core/lib/sync/drift.ts";
@@ -34,7 +35,7 @@ import { resolveVault } from "../../packages/core/lib/vault/init.ts";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  kbStatusText, pendingNoticeText,
+  pendingNoticeText,
   applyPatches,
 } from "../../packages/core/lib/capture-orchestration.ts";
 
@@ -187,14 +188,6 @@ export default function (pi: ExtensionAPI) {
       // 审计失败绝不阻塞工具调用
     }
     return undefined; // 放行，不修改不拦截
-  });
-
-  // ---------- /kb：知识库状态（最小实现） ----------
-  pi.registerCommand("kb", {
-    description: "知识库状态（知识卡片计数与路径）",
-    handler: async (_args, ctx) => {
-      ctx.ui.notify(kbStatusText(), "info");
-    },
   });
 
   // ---------- kb_doctor：LLM 链路诊断（分发后用户自检配置） ----------
