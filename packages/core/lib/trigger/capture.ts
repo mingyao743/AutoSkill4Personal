@@ -12,7 +12,7 @@
  *
  * 这样至少能回答「这个会话值不值得编译」，不会白等。
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveStandaloneConfig, activeConfigDescription } from "../base/llm.ts";
 import { indexTurns, remainingTurns, takeWindow, windowEndTurn, windowEndSeq } from "./turns.ts";
@@ -290,4 +290,123 @@ export function describeCredentialSituation(): string {
   return config
     ? `可编译：${activeConfigDescription()}，模型 ${config.model}`
     : `不可编译（CLI 独立进程）：${reason}`;
+}
+
+// ---------------- 死信队列补跑 ----------------
+
+/** capture.json 里一条待补跑项（queueForHost 写入的形状） */
+export interface PendingCaptureItem {
+  session_file: string;
+  session_id: string;
+  cwd: string;
+  windows: Array<{ from_turn: number; to_turn: number }>;
+  reason: string;
+  queued_at: string;
+}
+
+export interface DrainResult {
+  /** 编完删掉的 item 数 */
+  drained: number;
+  /** 保留待下次重试的 item 数（error / 锁忙 / 预算用尽 / 无信号） */
+  kept: number;
+  /** 本次实际编译成功的窗口数 */
+  windowsCompiled: number;
+  /** 诊断信息（丢弃的坏项、单条异常等） */
+  notes: string[];
+}
+
+/**
+ * 排空「待补跑」队列（`.ow/pending/capture.json`）。
+ *
+ * 为什么需要它：`queueForHost` 在 CLI 无凭据时把编译任务落进队列，注释承诺
+ * 「宿主下次启动时读它补跑」——但之前没有任何代码读它，写进去就石沉大海
+ * （2026-11-17 实测：session-a3cea5a8 的 60 轮因此全晾着）。
+ *
+ * 宿主侧（adapter-dsh 定时器，in-process ChatCompleter 已注入）调本函数：对每条
+ * item 反复跑 `runOne(sessionFile)`，每跑成一次（返回 "compiled"）就推进水位，
+ * 直到没有整窗可编（"not-enough-turns" 等终态）才放下。`runOne` 注入是为了不让
+ * core 反向依赖 adapter-dsh 的 runCycle，也方便测试用 mock 替身。
+ *
+ * 删除策略：
+ *  - 编到「无整窗可编 / 会话空 / 自触发」→ 删（要么编完了，要么确实没东西可编）；
+ *  - 会话文件已消失 → 删（留着只会永远失败）；
+ *  - error / 锁忙 / 预算用尽 / 无信号 → **保留**，等下次 tick 续（水位已推进，
+ *    续编剩余窗口；无信号时水位不推进，下次再判，signal 不会因静态历史翻转，
+ *    但保留比静默丢弃数据安全）。
+ */
+export async function drainPendingCapture(
+  vaultDir: string,
+  runOne: (sessionFile: string) => Promise<string>,
+): Promise<DrainResult> {
+  const path = join(vaultDir, ".ow", "pending", "capture.json");
+  let parsed: { schema: number; items: PendingCaptureItem[] };
+  try {
+    parsed = JSON.parse(readFileIfExists(path) ?? "") as { schema: number; items: PendingCaptureItem[] };
+    if (!parsed.items?.length) {
+      return { drained: 0, kept: 0, windowsCompiled: 0, notes: [] };
+    }
+  } catch {
+    // 损坏或不存在：没东西可排
+    return { drained: 0, kept: 0, windowsCompiled: 0, notes: [] };
+  }
+
+  const notes: string[] = [];
+  let windowsCompiled = 0;
+  const survivors: PendingCaptureItem[] = [];
+
+  for (const item of parsed.items) {
+    // 会话文件已不在（会话被清理）：留着只会永远失败，直接丢
+    if (!item.session_file || !existsSync(item.session_file)) {
+      notes.push(`丢弃 ${item.session_id ?? "?"}：会话文件不存在 ${item.session_file ?? "(空)"}`);
+      continue;
+    }
+
+    let compiledAny = false;
+    let last = "";
+    try {
+      // 反复编译直到不再返回 "compiled"（每跑成一次推进一次水位）
+      for (;;) {
+        last = await runOne(item.session_file);
+        if (last !== "compiled") break;
+        compiledAny = true;
+        windowsCompiled++;
+      }
+    } catch (e) {
+      // 单条异常不拖垮其它 item：保留这条，下次 tick 再试
+      notes.push(`保留 ${item.session_id}: ${String(e).slice(0, 200)}`);
+      survivors.push(item);
+      continue;
+    }
+
+    // 终态判定：到「无整窗可编 / 会话空 / 自触发 / 子代理跳过」才删；
+    // 可重试终态保留待下次。注意 compiledAny 时 last 必非 "compiled"，
+    // 若是 not-enough-turns 则全编完→删；若是 error 则部分编完→保留续编。
+    const terminal =
+      last === "not-enough-turns" ||
+      last === "skip" ||
+      last === "none" ||
+      last === "self-trigger" ||
+      last === "subagent-skip";
+    if (!terminal) {
+      survivors.push(item);
+    }
+  }
+
+  if (survivors.length === 0) {
+    // 全清：删文件，不留空壳（否则 status 会一直挂着一个 0 项队列文件）
+    try {
+      rmSync(path, { force: true });
+    } catch {
+      /* 忽略 */
+    }
+  } else {
+    writeFileSync(path, JSON.stringify({ schema: 1, items: survivors }, null, 2), "utf8");
+  }
+
+  return {
+    drained: parsed.items.length - survivors.length,
+    kept: survivors.length,
+    windowsCompiled,
+    notes,
+  };
 }

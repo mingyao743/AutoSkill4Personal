@@ -21,6 +21,8 @@ import { checkSkillDrift, describeDrift } from "../../core/lib/sync/drift.ts";
 import {
 	setDshHome, setAutoInit, getCurrentSessionFile, latestSessionFile, runCycle,
 } from "./tools.ts";
+import { resolveVault } from "../../core/lib/vault/init.ts";
+import { drainPendingCapture } from "../../core/lib/trigger/capture.ts";
 
 export interface Config {
 	/** Harness 配置根；默认 $DSH_HOME 或 ~/.dsh */
@@ -103,6 +105,12 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 	let lastMtime = 0;
 
 	const tick = (): void => {
+		// 排空「待补跑」死信队列（capture.json）：CLI 无凭据时落下的编译任务，
+		// in-process ChatCompleter 已就位，补跑掉。独立于当前会话 mtime——否则当前
+		// 会话 idle 时（如已结束的历史 session 留下的队列）永远没人取。
+		void drainPendingCaptureForCwd().catch((e) => {
+			logError(`[autoskill] 排空 capture 队列失败: ${String(e).slice(0, 300)}`);
+		});
 		try {
 			const f = getCurrentSessionFile() ?? latestSessionFile();
 			if (!f || !existsSync(f)) return;
@@ -125,4 +133,17 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 		clearInterval(timer);
 		clearTimeout(first);
 	});
+}
+
+/**
+ * 排空当前 cwd 对应 vault 的 capture.json 死信队列。
+ *
+ * runCycle 内部按会话头里的 cwd 解析 vault（与落队列时是同一个 vault），
+ * 所以这里只要找到当前项目的 vault、把队列里每条 item 的 session_file 喂给
+ * runCycle 即可。没 vault（当前目录没 .qdoc）就无事可做。
+ */
+async function drainPendingCaptureForCwd(): Promise<void> {
+	const vault = resolveVault({ cwd: process.cwd(), autoInit: false });
+	if (!vault) return;
+	await drainPendingCapture(vault.dir, (sf) => runCycle(sf));
 }
