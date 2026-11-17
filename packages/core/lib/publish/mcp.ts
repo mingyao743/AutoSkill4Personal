@@ -4,11 +4,12 @@
  * 协议：Streamable HTTP + SSE（`POST /mcp`，`Accept: application/json, text/event-stream`）。
  * 只用 Node 内置 `fetch` + `ReadableStream`，不引第三方依赖。
  *
- * 平台能力边界（实测 2026-11-13，server `offerlai/1.30.0`，10 个工具）：
- *  - 没有 namespace：靠 filename 前缀 + tags 分组（§9.2）
- *  - 没有 delete：只能墓碑（改正文 + 改 status 标签）（§9.5）
+ * 平台能力边界（实测 2026-11-17，server `offerlai/1.30.0`，24 个工具）：
+ *  - 没有 delete：只能墓碑（改正文）（§9.5）
  *  - 没有 draft：发布前本地确定性门禁（§12）
- *  - `update_document` **不接受 tags**，tags 只在 create 时给
+ *  - `update_document` 可单独改 filename / tags / 正文（乐观锁）
+ *  - `upload_document` 支持 PDF/DOCX/MD/TXT（≤20MB），保留原件 + 解析 Markdown
+ *  - `create/update/upload_document` 支持 `sensitive_policy`，返回 `sensitive_warnings`
  *  - `import_skill_from_files` 落库后是「未启用」，`list_available_skills` 只返回已启用
  */
 import { readFileSync } from "node:fs";
@@ -36,13 +37,25 @@ export type ToolName =
   | "list_document_tags"
   | "read_document"
   | "read_document_content"
+  | "read_document_source"
   | "create_document"
   | "update_document"
+  | "upload_document"
   | "list_todo_projects"
   | "list_todo_items"
   | "create_todo_item"
   | "update_todo_item"
   | "complete_todo_item";
+
+/** 平台敏感信息策略：block 拒绝 / warn 写入并告警 / allow 跳过扫描 */
+export type SensitivePolicy = "block" | "warn" | "allow";
+
+/** 平台单文件上限（upload_document） */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+export function normalizeSensitivePolicy(v: unknown): SensitivePolicy {
+  return v === "warn" || v === "allow" ? v : "block";
+}
 
 export interface DocSummary {
   id: number | string;
@@ -53,8 +66,41 @@ export interface DocSummary {
   vectorized?: boolean;
   version?: number;
   updated_at?: string;
-  /** 仅 read_document 返回；list_documents 不含 */
+  /** 2026-11-17 起 list/search 也返回 tags；read_document 的 metadata.tags 仍兼容 */
+  tags?: string[];
+  /** 仅 read_document 返回 */
   metadata?: { tags?: string[]; agent_user?: string; [k: string]: unknown };
+}
+
+/** read_document_content 的结构化返回（PDF/DOCX 解析快照时 format=markdown） */
+export interface DocContent {
+  content: string;
+  format: "markdown" | "text" | string;
+  truncated: boolean;
+  totalChars?: number;
+}
+
+/** upload_document 返回 */
+export interface UploadedDocument {
+  id?: number | string;
+  doc_id?: number | string;
+  filename?: string;
+  version?: number;
+  source_file_url?: string;
+  parsed_format?: string;
+  parsed_chars?: number;
+  size?: number;
+  sensitive_warnings?: string[];
+}
+
+/** read_document_source 返回 */
+export interface DocumentSource {
+  id?: number | string;
+  filename?: string;
+  size?: number;
+  mime?: string;
+  content_base64?: string;
+  truncated?: boolean;
 }
 
 /** 技能文件项（import/update 的 files 数组元素；字段名以平台 schema 为准） */
@@ -248,8 +294,8 @@ export class QdocMcpClient {
   }
 
   /**
-   * 文档元数据（含 tags）。**tags 只能从这里读**——
-   * `list_documents` 返回的字段里没有 tags（实测）。
+   * 文档元数据（含 tags）。2026-11-17 起 list/search 也会返回 tags，
+   * 但 `read_document` 仍是最权威的单篇元数据入口。
    *
    * id 已从数字改为 UUID（2026-11-16 实测），两种都收。
    */
@@ -257,14 +303,67 @@ export class QdocMcpClient {
     return this.callTool<DocSummary>("read_document", { doc_id: id });
   }
 
-  /** 参数名是 `doc_id`，不是 document_id；id 兼容旧数字与 UUID */
-  async readDocumentContent(id: number | string, maxChars?: number): Promise<string> {
-    const res = await this.callTool<{ content?: string; text?: string; content_md?: string } | string>(
+  /**
+   * 文档正文（结构化）。`format='markdown'` 会优先取上传时保留的 Markdown 快照
+   * （PDF/DOCX 为解析结果）；旧文档回退 text，`format` 会如实返回。
+   */
+  async readDocumentContentDetail(
+    id: number | string,
+    opts: { maxChars?: number; format?: "markdown" | "text" } = {},
+  ): Promise<DocContent> {
+    const res = await this.callTool<{
+      content?: string; text?: string; content_md?: string;
+      format?: string; truncated?: boolean; total_chars?: number;
+    } | string>(
       "read_document_content",
-      { doc_id: id, ...(maxChars != null ? { max_chars: maxChars } : {}) },
+      {
+        doc_id: id,
+        format: opts.format ?? "markdown",
+        ...(opts.maxChars != null ? { max_chars: opts.maxChars } : {}),
+      },
     );
-    if (typeof res === "string") return res;
-    return res?.content_md ?? res?.content ?? res?.text ?? "";
+    if (typeof res === "string") {
+      return { content: res, format: "text", truncated: false };
+    }
+    return {
+      content: res?.content_md ?? res?.content ?? res?.text ?? "",
+      format: typeof res?.format === "string" ? res.format : "text",
+      truncated: res?.truncated === true,
+      totalChars: typeof res?.total_chars === "number" ? res.total_chars : undefined,
+    };
+  }
+
+  /** 兼容旧调用方：只要正文 */
+  async readDocumentContent(id: number | string, maxChars?: number): Promise<string> {
+    return (await this.readDocumentContentDetail(id, { maxChars })).content;
+  }
+
+  /** 上传文档原件：PDF/DOCX/MD/TXT，单文件 ≤20MB；平台保留原件并解析 Markdown */
+  async uploadDocument(input: {
+    filename: string;
+    content: Buffer;
+    tags?: string[];
+    isSafe?: boolean;
+    sensitivePolicy?: SensitivePolicy;
+  }): Promise<UploadedDocument> {
+    if (input.content.byteLength > MAX_UPLOAD_BYTES) {
+      throw new Error(`文件 ${(input.content.byteLength / 1024 / 1024).toFixed(1)}MB 超过平台上限 20MB`);
+    }
+    return this.callTool<UploadedDocument>("upload_document", {
+      filename: input.filename,
+      content_base64: input.content.toString("base64"),
+      ...(input.isSafe ? { is_safe: true } : {}),
+      ...(input.tags?.length ? { tags: input.tags } : {}),
+      sensitive_policy: normalizeSensitivePolicy(input.sensitivePolicy),
+    });
+  }
+
+  /** 读上传原件（base64）；纯 Markdown 创建的文档没有原件 */
+  async readDocumentSource(id: number | string, maxBytes?: number): Promise<DocumentSource> {
+    return this.callTool<DocumentSource>("read_document_source", {
+      doc_id: id,
+      ...(maxBytes != null ? { max_bytes: maxBytes } : {}),
+    });
   }
 
   /** 参数名是 `content_md`；tags 在 create 与 update 时都能传 */
@@ -273,12 +372,17 @@ export class QdocMcpClient {
     content: string;
     tags?: string[];
     namespaceId?: number;
-  }): Promise<{ id?: number | string; doc_id?: number | string; version?: number }> {
+    sensitivePolicy?: SensitivePolicy;
+  }): Promise<{
+    id?: number | string; doc_id?: number | string; version?: number;
+    sensitive_warnings?: string[];
+  }> {
     return this.callTool("create_document", {
       filename: input.filename,
       content_md: input.content,
       ...(input.tags?.length ? { tags: input.tags } : {}),
       ...(input.namespaceId != null ? { namespace_id: input.namespaceId } : {}),
+      sensitive_policy: normalizeSensitivePolicy(input.sensitivePolicy),
     });
   }
 
@@ -293,13 +397,18 @@ export class QdocMcpClient {
     baseVersion: number;
     filename?: string;
     tags?: string[];
-  }): Promise<{ id?: number | string; doc_id?: number | string; version?: number }> {
+    sensitivePolicy?: SensitivePolicy;
+  }): Promise<{
+    id?: number | string; doc_id?: number | string; version?: number;
+    tags?: string[]; filename?: string; sensitive_warnings?: string[];
+  }> {
     return this.callTool("update_document", {
       doc_id: input.documentId,
       base_version: input.baseVersion,
       ...(input.content != null ? { content_md: input.content } : {}),
       ...(input.filename != null ? { filename: input.filename } : {}),
       ...(input.tags != null ? { tags: input.tags } : {}),
+      ...(input.content != null ? { sensitive_policy: normalizeSensitivePolicy(input.sensitivePolicy) } : {}),
     });
   }
 

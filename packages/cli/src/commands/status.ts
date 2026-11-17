@@ -35,7 +35,8 @@ export async function runStatus(args: ParsedArgs): Promise<number> {
     `页面：${pages.length} 页`,
     "",
     "发布：",
-    `  已发布 ${ledger.published} / 待发布 ${sync.pendingPublish} / 墓碑 ${ledger.tombstone} / 失败 ${ledger.failing}`,
+    `  已发布 ${ledger.published} / 待发布 ${sync.pendingPublish} / 墓碑 ${ledger.tombstone} / 失败 ${ledger.failing}` +
+      (ledger.sensitiveBlocked > 0 ? ` / 敏感拦截 ${ledger.sensitiveBlocked}` : ""),
     `  冲突待裁决：${conflicts.length}`,
     "",
     "编译：",

@@ -102,23 +102,29 @@ export async function runQuery(args: ParsedArgs): Promise<number> {
   }
 
   const limit = Number(flagString(args, "limit") ?? 3);
+  const maxChars = Math.min(Math.max(Number(flagString(args, "max-chars") ?? 20_000), 1_000), 100_000);
   const detailed: Array<Record<string, unknown>> = [];
 
   for (const h of hits.slice(0, limit)) {
-    let content = "";
+    let detail = { content: "", format: "text", truncated: false, totalChars: undefined as number | undefined };
     try {
-      content = await client.readDocumentContent(h.id);
+      // PDF/DOCX 用 markdown 快照；旧文档平台会回退 text
+      detail = await client.readDocumentContentDetail(h.id, { format: "markdown", maxChars });
     } catch (e) {
-      content = `（读取失败：${String(e).slice(0, 120)}）`;
+      detail.content = `（读取失败：${String(e).slice(0, 120)}）`;
     }
-    const meta = parseMetaComment(content);
+    const meta = parseMetaComment(detail.content);
     detailed.push({
       id: h.id,
       filename: h.filename,
+      file_type: h.file_type,
       version: h.version,
       updated_at: h.updated_at,
+      format: detail.format,
+      truncated: detail.truncated,
+      totalChars: detail.totalChars,
       provenance: meta,
-      content,
+      content: detail.content,
     });
   }
 
@@ -126,7 +132,10 @@ export async function runQuery(args: ParsedArgs): Promise<number> {
     .map((d) => {
       const p = d.provenance as Record<string, unknown> | null;
       const src = p ? `\n  来源：${p.agent ?? "?"} / ${p.session ?? "?"} / 第 ${p.turns ?? "?"} 轮` : "";
-      return `## ${d.filename}（id=${d.id}, v${d.version}）${src}\n\n${String(d.content).slice(0, 2000)}`;
+      const type = d.file_type ? ` / ${d.file_type}` : "";
+      const format = d.format ? ` / ${d.format}` : "";
+      const cut = d.truncated ? `\n  ⚠ 平台返回已截断${d.totalChars ? `（原文 ${d.totalChars} 字符）` : ""}，加大 --max-chars 可重读` : "";
+      return `## ${d.filename}（id=${d.id}, v${d.version}${type}${format}）${src}${cut}\n\n${String(d.content).slice(0, 2000)}`;
     })
     .join("\n\n---\n\n");
 

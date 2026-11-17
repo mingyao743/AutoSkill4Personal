@@ -672,6 +672,26 @@ skills/<domain>/
 `当前令牌已被轮换、处于宽限期（至 2026-11-13 21:22:07），到期后失效`。
 说明 token 有轮换机制，代码里要把这条 `_notice` 透出给用户，不能静默吞掉。
 
+### 9.1c 平台新增：PDF/DOCX 上传与敏感检测（2026-11-17）
+
+MCP `tools/list` 实测新增：
+
+| 能力 | 工具 | 约束 |
+|---|---|---|
+| 上传 PDF/DOCX/MD/TXT | `upload_document` | `content_base64`，≤20MB；保留原件 + 解析 Markdown；返回 `source_file_url/parsed_format/parsed_chars` |
+| 读原件 | `read_document_source` | base64；默认 5MB、最大 20MB |
+| 读解析正文 | `read_document_content` | `format='markdown'` 优先返回解析快照，旧文档回退 text |
+| 敏感检测 | `create/update/upload_document` | `sensitive_policy: block(默认)/warn/allow`；返回 `sensitive_warnings` |
+| 不上 AI 检索 | `upload_document` | `is_safe=true` |
+
+AutoSkill 适配：
+
+- **不把 PDF/DOCX 当页面附件**——平台没有 attachment 对象。走独立 `ow doc upload`，本地 `.publish/uploads.json` 按 sha256 去重。
+- 平台没有“替换原件”API：文件变了只能新建；旧文档仍在线。上传台账要提示这一点。
+- `ow publish` / `ow doc upload` 默认 `sensitive_policy=block`；平台拒绝记为不可重试，不自动反复发。`warn` 时把 `sensitive_warnings` 写进台账/输出。
+- `ow query` 用 `format='markdown'` 读 PDF/DOCX 解析结果，显示 `file_type` 与截断状态。
+- 本地 7 道门禁仍是第一层；平台敏感检测是第二层，不能互相替代。
+
 ### 9.2 文件名与分组（2026-11-16 修订：去前缀）
 
 **旧规则已废**：`qdoc-<project>-<slug>.md` 的三个前提（search 只匹配文件名、

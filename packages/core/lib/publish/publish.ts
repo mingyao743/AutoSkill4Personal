@@ -12,9 +12,10 @@ import { readLedger, recordFailure, recordPublish, shouldRetry, type LedgerEntry
 import { describeGates, runGates, type GateResult } from "./gate.ts";
 import { toPlatformFilename, legacyFilename, projectTag } from "./naming.ts";
 import { renderForPublish, parseMetaComment } from "../vault/render.ts";
-import { bodyHash } from "../vault/frontmatter.ts";
+import { bodyHash, splitFrontmatter } from "../vault/frontmatter.ts";
 import { applyRedactPolicy, type RedactPolicy } from "../security/redact.ts";
-import type { QdocMcpClient, DocSummary } from "./mcp.ts";
+import type { QdocMcpClient, DocSummary, SensitivePolicy } from "./mcp.ts";
+import { normalizeSensitivePolicy } from "./mcp.ts";
 
 export interface PublishPageOptions {
   client: QdocMcpClient;
@@ -27,6 +28,12 @@ export interface PublishPageOptions {
   dryRun?: boolean;
   /** 平台已有同标题文档（调用方预取；不传则本函数自己查） */
   existing?: DocSummary;
+  /** 本地脱敏策略（block / replace / warn）；与平台 sensitivePolicy 独立 */
+  redact?: RedactPolicy;
+  /** 平台敏感信息策略（block 默认 / warn / allow） */
+  sensitivePolicy?: SensitivePolicy;
+  /** 忽略“敏感拦截同一正文不重试”的保护，强制再试一次 */
+  force?: boolean;
 }
 
 export interface PublishPageResult {
@@ -37,6 +44,10 @@ export interface PublishPageResult {
   version?: number;
   gate: GateResult;
   message?: string;
+  /** 平台返回的敏感告警（warn 策略或 allow 下可能为空） */
+  sensitiveWarnings?: string[];
+  /** 平台敏感检测拒绝（不是网络/普通失败，不应自动重试） */
+  sensitiveBlocked?: boolean;
 }
 
 /** 发布一页 */
@@ -53,14 +64,17 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
   const markdown = readFileSync(abs, "utf8");
   const ledger = readLedger(opts.vaultDir);
   const entry: LedgerEntry | null = ledger.pages[opts.pagePath] ?? null;
+  const incomingHash = bodyHash(splitFrontmatter(markdown).body);
 
-  // 连续失败太多次：不再自动重试，交人工
-  if (!shouldRetry(entry)) {
+  // 连续失败太多次，或同一正文已被平台敏感拦截：不再自动重试，交人工
+  if (!shouldRetry(entry, incomingHash, opts.force)) {
     return {
       pagePath: opts.pagePath,
       action: "failed",
       gate: emptyGate(),
-      message: `已连续失败 ${entry?.failures} 次（${entry?.last_error ?? ""}），需人工处理`,
+      message: entry?.no_retry
+        ? `同一正文已被平台敏感拦截（${entry?.last_error ?? ""}），改正文或用 --force 重试`
+        : `已连续失败 ${entry?.failures} 次（${entry?.last_error ?? ""}），需人工处理`,
     };
   }
 
@@ -68,6 +82,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
   // 必须放在渲染**之前**——`--redact replace` 改的是要发出去的正文，
   // 放到渲染之后就会改到带 meta 注释的版本，正文与本地对不上。
   const redactPolicy: RedactPolicy = opts.redact ?? "block";
+  const sensitivePolicy = normalizeSensitivePolicy(opts.sensitivePolicy);
   const redacted = applyRedactPolicy(markdown, redactPolicy);
   if (!redacted.allowed) {
     return {
@@ -98,8 +113,8 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
     // 否则脱敏策略与门禁会互相打架（策略说放行，门禁又拦）。
     skipPrivacyGate: redactPolicy === "warn" || (redactPolicy === "replace" && redacted.replaced > 0),
     existing: existing ? { id: existing.id, filename: existing.filename, version: existing.version } : undefined,
-    // 自愈重建时**忘掉**上次发布哈希：平台文档已不在，hash 相等不该再触发 skip
-    publishedHash: found.healed ? undefined : entry?.body_hash,
+    // 只有“已发布”的账本才参与 unchanged 判定；自愈重建/敏感拦截的 pending 不能 skip
+    publishedHash: found.healed || entry?.status !== "published" ? undefined : entry?.body_hash,
     allowUpdate: true,
   });
 
@@ -133,6 +148,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
         documentId: existing.id,
         content: rendered.text,
         baseVersion: existing.version ?? 1,
+        sensitivePolicy,
       });
       const id = res?.doc_id ?? res?.id ?? existing.id;
       recordPublish(opts.vaultDir, opts.pagePath, {
@@ -142,6 +158,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
         body_hash: gate.hash,
         publish_as: "document",
         status: "published",
+        sensitive_warnings: res?.sensitive_warnings,
       });
       return {
         pagePath: opts.pagePath,
@@ -150,6 +167,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
         filename,
         version: res?.version,
         gate,
+        sensitiveWarnings: res?.sensitive_warnings,
       };
     }
 
@@ -157,6 +175,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
       filename,
       content: rendered.text,
       tags: createTags,
+      sensitivePolicy,
     });
     const id = res.doc_id ?? res.id;
     if (id == null) throw new Error(`create_document 未返回 id：${JSON.stringify(res)}`);
@@ -167,6 +186,7 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
       body_hash: gate.hash,
       publish_as: "document",
       status: "published",
+      sensitive_warnings: res.sensitive_warnings,
     });
     return {
       pagePath: opts.pagePath,
@@ -175,11 +195,27 @@ export async function publishPage(opts: PublishPageOptions): Promise<PublishPage
       filename,
       version: res.version,
       gate,
+      sensitiveWarnings: res.sensitive_warnings,
     };
   } catch (e) {
     const msg = String(e).slice(0, 300);
-    recordFailure(opts.vaultDir, opts.pagePath, msg);
-    return { pagePath: opts.pagePath, action: "failed", gate, message: msg };
+    const sensitive = /敏感|sensitive/i.test(msg);
+    recordFailure(opts.vaultDir, opts.pagePath, msg, {
+      noRetry: sensitive,
+      attemptHash: incomingHash,
+      create: {
+        filename,
+        body_hash: incomingHash,
+        publish_as: "document",
+      },
+    });
+    return {
+      pagePath: opts.pagePath,
+      action: sensitive ? "blocked" : "failed",
+      gate,
+      message: sensitive ? `平台敏感检测拒绝：${msg}` : msg,
+      sensitiveBlocked: sensitive,
+    };
   }
 }
 
@@ -215,7 +251,7 @@ async function findExisting(
 ): Promise<{ doc?: DocSummary; healed: boolean }> {
   const ledger = readLedger(opts.vaultDir);
   const entry = ledger.pages[opts.pagePath];
-  if (entry?.document_id != null) {
+  if (entry?.document_id != null && entry.document_id !== "") {
     // 平台 2026-11-16 起 doc_id 只收 UUID 字符串（实测 pydantic 报
     // "Input should be a valid string"）——台账里的旧数字 id 定义上不可达，
     // 直接重建，不浪费一次探测。

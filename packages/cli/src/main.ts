@@ -43,7 +43,7 @@ const HELP = `ow —— qdoc 知识库工具
   link        建 wiki -> .qdoc 软链
   maintain    重建 index.md / hot.md
   todo        平台待办（list/add/done/undone/edit/projects，纯透传）
-  doc         已发布文档改名/改 tag（doc rename / doc tag）
+  doc         文档字段/文件：rename/tag/upload/download/uploads
   mcp-config  生成各宿主（qoder/codebuddy/workbuddy）接 qdoc MCP 的 JSON
   doctor      宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移）
 
@@ -54,6 +54,9 @@ const HELP = `ow —— qdoc 知识库工具
   --session <f>   capture 用的会话文件
   --agent <dsh|pi> capture 的宿主（默认按路径识别）
   --plan          capture 只切窗不编译
+  --sensitive-policy <block|warn|allow>  publish/upload 的平台敏感策略（默认 block）
+  --max-chars <n> query 读取平台正文上限（默认 20000，最大 100000）
+  --force         publish：忽略敏感拦截/连续失败保护，强制重试
   --help          显示本帮助
 `;
 

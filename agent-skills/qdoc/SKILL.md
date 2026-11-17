@@ -49,7 +49,7 @@ ow status --json
 | **改文档字段用 `ow doc`，别裸调 MCP** | 平台事实都在下面这张卡里；裸调容易踩过时 schema 的坑 |
 | **用户给了明确指令就直接做** | 读操作不用问；写操作一句话说明 → 做 → 汇报结果，不反问 |
 
-## 平台事实卡（2026-11-16 实测；动手前过一遍，别靠猜）
+## 平台事实卡（2026-11-17 实测；动手前过一遍，别靠猜）
 
 | 事实 | 别踩的坑 |
 |---|---|
@@ -61,6 +61,8 @@ ow status --json
 | 平台**无删除**（MCP 层）；可见性跟账号走，token 只管鉴权且**分权限**（todo:read 等） | 发出去就在线；doc_id 不可达=文档被删/迁移，发布器会自愈重建；报「缺少权限」= 要换带权限的新 token |
 | 技能 import 后默认**未启用** | 要人去 qdoc.chat 技能页点「启用」，这不是 bug |
 | 技能 description 由**平台自己按行解析** frontmatter，`update_skill` 传的 description 参数**不生效** | SKILL.md 的 description 必须写成**单行**（可带引号）；YAML 折叠标量 `>` 会被存成字面的 `">"` |
+| `upload_document` 支持 PDF/DOCX/MD/TXT，单文件 ≤20MB；平台保留原件 + 解析 Markdown，`read_document_content(format=markdown)` 读解析结果 | 没有“替换原件”API：重传会新建文档；同一文件先查台账，别重复传。`is_safe=true` 不进入 AI 检索 |
+| `create_document` / `update_document` / `upload_document` 都有 `sensitive_policy`：`block`（默认）/`warn`/`allow` | 平台扫描比本地密钥门禁更广（PII 等）；`block` 会拒绝，`warn` 返回 `sensitive_warnings`，不是本地门禁能替代的 |
 
 ## 命令速查
 
@@ -73,6 +75,9 @@ ow publish                # 推到平台（成功输出自带验证命令）
 ow query "关键词"          # 在线查已发布文档
 ow doc rename <page|UUID> <新名>   # 改平台文件名
 ow doc tag <page|UUID> --add a,b   # 改平台 tag
+ow doc upload report.pdf           # 独立上传 PDF/DOCX/MD/TXT（20MB 上限）
+ow doc download <UUID> --out ./report.pdf   # 下载平台保留的原件
+ow publish --sensitive-policy warn # 平台敏感策略 block（默认）/warn/allow
 ow todo list              # 待办（--all 含已完成）
 ow todo add "事"          # 加待办（--priority 0-3 / --due 日期）
 ow todo done <id>         # 完成待办
@@ -86,7 +91,9 @@ ow review                 # 处理待确认（交互）
 
 **「查询 0 结果」** —— 平台搜索是**短语精确匹配**，不是语义搜索。`qdoc MCP` 查不到就换 `MCP`。`ow query` 已内置按词降级，会自己重试。
 
-**「发布被拦」** —— 跑 `ow publish --dry-run` 看是哪道门禁。7 道门禁全在本地跑，平台无草稿功能。
+**「发布被拦」** —— 跑 `ow publish --dry-run` 看是哪道本地门禁；平台敏感检测只在真实发布时发生。收到「平台敏感检测拒绝」时不要连续重试，先改正文，或显式评估后用 `--sensitive-policy warn`。
+
+**「PDF/DOCX 上传失败」** —— 先看扩展名和 20MB 上限；`block` 策略被平台拒绝时不会入库，可按提示修改原件，或显式 `--sensitive-policy warn`（会写入并返回 warnings）。
 
 **「技能推上去看不见」** —— `import_skill_from_files` 落库是**未启用**状态，`list_available_skills` 只返回已启用的。要人去 qdoc.chat 技能页点「启用」。
 

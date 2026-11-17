@@ -29,6 +29,12 @@ export interface LedgerEntry {
   /** 发布失败次数，用于退避与告警 */
   failures?: number;
   last_error?: string;
+  /** 平台敏感拦截等不可重试失败：同一正文不再自动发布 */
+  no_retry?: boolean;
+  /** 上次被拦截时的正文 hash；正文变化后允许重试 */
+  last_attempt_hash?: string;
+  /** 平台返回的敏感告警（warn 策略下与正文一起写入） */
+  sensitive_warnings?: string[];
 }
 
 export interface Ledger {
@@ -88,14 +94,43 @@ export function recordPublish(
 }
 
 /** 发布失败记账（用于退避：连续失败 3 次后不再自动重试） */
-export function recordFailure(vaultDir: string, pagePath: string, error: string): void {
+export function recordFailure(
+  vaultDir: string,
+  pagePath: string,
+  error: string,
+  opts: {
+    noRetry?: boolean;
+    attemptHash?: string;
+    /** 从未成功过时也建一条 pending 记录（敏感拦截需要“同一正文不重试”） */
+    create?: { filename: string; body_hash: string; publish_as: "document" | "skill" | "local" };
+  } = {},
+): void {
   const ledger = readLedger(vaultDir);
   const prev = ledger.pages[pagePath];
-  if (!prev) return; // 从没成功过的不记，避免账本膨胀
+  if (!prev) {
+    if (!opts.create) return; // 普通失败不膨胀账本
+    ledger.pages[pagePath] = {
+      document_id: "",
+      filename: opts.create.filename,
+      body_hash: opts.create.body_hash,
+      publish_as: opts.create.publish_as,
+      status: "pending",
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      failures: 1,
+      last_error: error.slice(0, 300),
+      no_retry: opts.noRetry === true,
+      last_attempt_hash: opts.attemptHash,
+    };
+    writeLedger(vaultDir, ledger);
+    return;
+  }
   ledger.pages[pagePath] = {
     ...prev,
     failures: (prev.failures ?? 0) + 1,
     last_error: error.slice(0, 300),
+    ...(opts.noRetry ? { no_retry: true } : {}),
+    ...(opts.attemptHash ? { last_attempt_hash: opts.attemptHash } : {}),
   };
   writeLedger(vaultDir, ledger);
 }
@@ -103,7 +138,13 @@ export function recordFailure(vaultDir: string, pagePath: string, error: string)
 /** 是否该放弃自动重试 */
 export const MAX_FAILURES = 3;
 
-export function shouldRetry(entry: LedgerEntry | null): boolean {
+export function shouldRetry(entry: LedgerEntry | null, currentHash?: string, force = false): boolean {
+  if (force) return true;
+  if (entry?.no_retry) {
+    // 同一正文已被敏感拦截：不重试；用户改过正文（hash 变化）才重新尝试
+    if (currentHash && entry.last_attempt_hash && entry.last_attempt_hash !== currentHash) return true;
+    return false;
+  }
   return (entry?.failures ?? 0) < MAX_FAILURES;
 }
 
@@ -119,6 +160,7 @@ export function markTombstone(vaultDir: string, pagePath: string): void {
 /** 账本统计（`ow status` 用） */
 export function ledgerStats(vaultDir: string): {
   total: number; published: number; pending: number; tombstone: number; failing: number;
+  sensitiveBlocked: number;
 } {
   const pages = Object.values(readLedger(vaultDir).pages);
   return {
@@ -127,5 +169,6 @@ export function ledgerStats(vaultDir: string): {
     pending: pages.filter((p) => p.status === "pending").length,
     tombstone: pages.filter((p) => p.status === "tombstone").length,
     failing: pages.filter((p) => (p.failures ?? 0) >= MAX_FAILURES).length,
+    sensitiveBlocked: pages.filter((p) => p.no_retry).length,
   };
 }

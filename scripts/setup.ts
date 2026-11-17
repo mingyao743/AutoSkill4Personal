@@ -188,8 +188,11 @@ async function main(): Promise<number> {
   // 6. drift（doctor 的轻量前置；完整检查引导用户跑 ow doctor）
   const drift = checkSkillDrift(hosts.length === 1 ? { host: hosts[0] } : {});
   if (!drift.repoFound) warn("仓库根未找到，跳过技能漂移检查");
-  else if (drift.drifted.length > 0) step("技能漂移", false, drift.drifted.map((d) => d.name).join("、"));
-  else step("技能漂移", true, `${hosts.join("/")} 与仓库一致`);
+  else if (drift.drifted.length > 0) {
+    const names = drift.drifted.map((d) => d.name).join("、");
+    // 干跑时“重装”是计划的一部分，不应当成失败；真实运行后仍有漂移才是问题
+    step("技能漂移", args.dryRun, args.dryRun ? `干跑：将重装 ${names}` : names);
+  } else step("技能漂移", true, `${hosts.join("/")} 与仓库一致`);
 
   const ok = result.errors.length === 0;
   result.ok = ok;

@@ -48,6 +48,7 @@ export PATH="$HOME/.config/qdoc/bin:$PATH"
 | `ow link` | 建 `wiki -> .qdoc` 软链 | 否 |
 | `ow maintain` | 重建 index / hot | 否 |
 | `ow promote` | 把够格的知识页升级成技能 | 否 |
+| `ow doc` | 文档字段/文件：rename/tag/upload/download/uploads | 否 |
 | `ow doctor` | 宿主接入自检（`--host pi` 只看目标宿主；Node/zstd/软链/token/漂移） | 否 |
 
 常用选项：`--vault <dir>` `--dry-run` `--json` `--help`
@@ -61,6 +62,11 @@ CLI 是独立进程，**拿不到 agent 自己的模型凭据**（dsh 存的是�
 ow capture --plan     # 只切窗，看哪些窗口值得编译，不烧 token
 ow capture            # 有独立凭据就编译，没有就排队
 ow capture --session <pi.jsonl> --agent pi --plan   # pi 会话手动入口
+
+# PDF/DOCX 独立上传（不是页面附件）
+ow doc upload report.pdf --sensitive-policy block
+ow doc download <UUID> --out ./report.pdf
+ow doc uploads
 ```
 
 没凭据时会写 `.qdoc/.ow/pending/capture.json`，等宿主会话接手。**推荐在 agent 里

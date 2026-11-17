@@ -44,6 +44,8 @@ npm run ow --silent -- capture         # 编译当前会话 → 知识页
 npm run ow --silent -- publish --dry-run   # 门禁预检，再去掉 --dry-run 实发
 npm run ow --silent -- query "关键词"   # 查已发布文档
 npm run ow --silent -- todo list       # 平台待办
+ow doc upload report.pdf               # PDF/DOCX 独立上传（20MB 上限）
+ow doc download <UUID> --out ./report.pdf
 ow doctor                              # 宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移）
 ```
 

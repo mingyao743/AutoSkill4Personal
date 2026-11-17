@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { scanPages } from "../../../core/lib/vault/index.ts";
-import { QdocMcpClient } from "../../../core/lib/publish/mcp.ts";
+import { QdocMcpClient, normalizeSensitivePolicy } from "../../../core/lib/publish/mcp.ts";
 import { publishPages, type PublishPageResult } from "../../../core/lib/publish/publish.ts";
 import { defaultRedactPolicy } from "../../../core/lib/security/redact.ts";
 import { readLedger } from "../../../core/lib/publish/ledger.ts";
@@ -15,6 +15,13 @@ export async function runPublish(args: ParsedArgs): Promise<number> {
   const dryRun = flagBool(args, "dry-run");
   const only = flagString(args, "page");
   const doTombstone = flagBool(args, "tombstone");
+  const force = flagBool(args, "force");
+  const policyRaw = flagString(args, "sensitive-policy") ?? flagString(args, "policy");
+  if (policyRaw && policyRaw !== "block" && policyRaw !== "warn" && policyRaw !== "allow") {
+    process.stderr.write(`未知 --sensitive-policy：${policyRaw}（可选 block|warn|allow）\n`);
+    return 2;
+  }
+  const sensitivePolicy = normalizeSensitivePolicy(policyRaw);
 
   const ledger = readLedger(v.dir);
 
@@ -43,6 +50,8 @@ export async function runPublish(args: ParsedArgs): Promise<number> {
     pagePaths: targets,
     dryRun,
     redact: (flagString(args, "redact") as "block" | "replace" | "warn" | undefined) ?? defaultRedactPolicy(),
+    sensitivePolicy,
+    force,
   });
 
   // 本地已删但平台还在 → 提示墓碑
@@ -79,6 +88,11 @@ function reportResults(
         lines.push(`    ✗ [${i.gate}] ${i.message}`);
       }
       if (r.message) lines.push(`    ${r.message}`);
+      if (r.sensitiveBlocked) lines.push("    平台敏感拦截不会自动重试；改正文后重跑，或评估后加 --sensitive-policy warn");
+    }
+    if (r.sensitiveWarnings?.length) {
+      lines.push(`    ⚠ 平台敏感告警 ${r.sensitiveWarnings.length} 条：`);
+      for (const w of r.sensitiveWarnings) lines.push(`      - ${w}`);
     }
   }
   lines.push("");
@@ -97,5 +111,5 @@ function reportResults(
   }
 
   out(args, lines.join("\n"), { results, orphans });
-  return by("failed").length > 0 ? 1 : 0;
+  return by("failed").length + by("blocked").filter((r) => r.sensitiveBlocked).length > 0 ? 1 : 0;
 }

@@ -25,6 +25,20 @@ ow doc tag references/foo.md --remove 旧tag
 - 项目分组 tag 用 `p:<短名>`（平台 tag ≤20 字符，超长静默截断）。
 - 改正文不用这两个命令——改 vault 里的 md 再 `ow publish`（有门禁和版本管理）。
 
+## 上传 PDF/DOCX 独立文档
+
+```bash
+ow doc upload report.pdf --tag p:myproj
+ow doc upload spec.docx --private          # is_safe=true，不进 AI 检索
+ow doc upload scan.pdf --sensitive-policy warn   # 写入并返回敏感告警
+ow doc download <UUID> --out ./report.pdf  # 下载原件
+ow doc uploads                             # 本 vault 上传台账
+```
+
+- PDF/DOCX/MD/TXT 是**独立平台文档**，不是知识页附件；没有原件替换 API，重复上传会新建文档。
+- 台账按文件 sha256 去重；文件没变会跳过，改了内容要重新上传。
+- 默认 `sensitive_policy=block`；平台拒绝不会自动重试。`warn` 会把文档写进去并返回 `sensitive_warnings`。
+
 ## 待办
 
 ```bash
