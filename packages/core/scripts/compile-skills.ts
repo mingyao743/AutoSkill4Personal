@@ -81,7 +81,7 @@ const one = (n: string): string | undefined => flags.get(n)?.[0];
 const has = (n: string): boolean => flags.has(n);
 
 // 凭据定位基准：--generate 需要调 LLM，独立模式按 ~/.pi/agent 的 models.json 解析（与
-// pipeline/extract-calibrate 同链）；非 pi 宿主用 --no-home 改走环境变量直连。
+// compile-skills 独立模式同链）；非 pi 宿主用 --no-home 改走环境变量直连。
 const noHome = has("--no-home");
 const home = one("--home") ?? join(homedir(), ".pi", "agent");
 const defaultPiData = join(home, "data", "autoskill", "knowledge");

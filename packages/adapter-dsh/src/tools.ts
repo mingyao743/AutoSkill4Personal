@@ -39,15 +39,10 @@ function parseRawEvents(lines: string[]): Array<Record<string, unknown>> {
 }
 
 /**
- * **新主路径**：走 `trigger/cycle.ts` 的统一编排（方案 §5.5）。
+ * 走 `trigger/cycle.ts` 的统一编排（方案 §5.5）：30 轮闸 → 信号门 → 两级锁 → 进程内编译。
  *
- * 与旧的 `dispatchPipeline` 的区别：
- *  - 轮次判定改用 `indexTurns`（剔注入消息 + 剔空轮），不再用 `unreviewedUserTurns`
- *  - 水位线存 vault（`.ow/state.json`），不靠 atom sources 覆盖判定
- *  - 编译走 `compiler/run.ts` 进程内调 `ctx.llm`，产出落到 `.qdoc/` 知识页
- *  - 有 vault 锁 + 机器锁两级仲裁
- *
- * 旧的 `dispatchPipeline` 仍保留（抽取到 atoms 的旧管线），但定时器已改调本函数。
+ * 轮次判定用 `indexTurns`（剔注入消息 + 剔空轮）；水位线存 vault（`.ow/state.json`）；
+ * 编译走 `compiler/run.ts` 进程内调 `ctx.llm`，产出落到 `.qdoc/` 知识页。
  */
 export async function runCycle(sessionFile: string): Promise<string> {
 	const h = hostContext();

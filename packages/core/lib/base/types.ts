@@ -38,12 +38,3 @@ export interface SessionEntry {
   message?: AgentMessage;
   [k: string]: unknown;
 }
-
-/** 切分后的窗口（内存中间产物，不落盘） */
-export interface Window {
-  window_id: string;
-  session_id: string;
-  msg_range: [string, string];
-  entry_count: number;
-  entries: MessageEntry[];
-}

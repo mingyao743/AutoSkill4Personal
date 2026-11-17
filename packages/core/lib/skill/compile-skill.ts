@@ -11,10 +11,19 @@
 import { createHash } from "node:crypto";
 import { isInstructionAtom, type KnowledgeAtom } from "../base/atom-store.ts";
 import { isDocType } from "../base/admission.ts";
-import { shortSessionId } from "../extract/coverage.ts";
 import {
   BODY_BUDGET, DEFAULT_BODY_BUDGET, bodyBudgetFor, requiredSectionsFor,
 } from "./skill-contract.ts";
+
+/** 会话 id 取短哈希（8 位、去横线、去 session- 前缀）用于去重/展示 */
+function shortSessionId(id: string): string {
+  return id
+    .trim()
+    .toLowerCase()
+    .replace(/^session-/, "")
+    .replace(/-/g, "")
+    .slice(0, 8);
+}
 
 /** 就绪门阈值（§三 ①） */
 export const MIN_ATOMS = 5;

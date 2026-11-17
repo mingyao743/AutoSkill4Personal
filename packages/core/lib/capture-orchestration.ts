@@ -1,16 +1,9 @@
 /**
- * 捕获编排：把"何时抽取 / 状态与提示如何生成 / 后台管线如何 spawn"
- * 这类 host 无关的编排逻辑从 adapter 抽到 core。adapter 只剩宿主对接
- * （注册钩子、从 ctx 取 entries/sessionId、spawn 进程、格式化工具响应）。
+ * 捕获编排：知识库状态与提示生成（host 无关）。
  *
- * 统一触发（全 agent 一份逻辑）：每 N 个未审 user 轮抽一次。
- *  - shouldExtractOnTurn：stateless 数未审 user 轮，>= N 才抽。
- *  - runScheduledExtraction：多批把累积 N 轮一次抽完。
- *  - adapter 只 hook 宿主的"轮次推进"事件（pi=before_agent_start；dsh=定时器轮询）→ 调本模块。
- *
- * 设计原则（见 PLATFORM_INTEGRATION_REVIEW §分层）：
- *  - adapter 只对接各 agent 运行时；具体如何抽取/编排，全在 core。
- *  - 本模块函数纯数据进出（entries/sessionId/params），不触碰任何宿主 ctx。
+ * 旧的 atoms 抽取管线（shouldExtractOnTurn / runScheduledExtraction）已彻底删除，
+ * 自动编译走 core/trigger/cycle.ts 的 maybeCompile（30 轮闸 → 信号门 → 两级锁 → 进程内编译）。
+ * 本模块只保留：kbStatusText（状态）、pendingNoticeText（注入提示）、applyPatches（提案队列）。
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -22,9 +15,6 @@ import { applyPatches, intakeDir } from "./skill/apply-patches.ts";
 import { darwinDue, pendingSummary, darwinThreshold } from "./skill/skill-state.ts";
 import { compileDue } from "./skill/compile-skill.ts";
 import { lastCompileHashes } from "./skill/compile-state.ts";
-import { runPipeline, type PipelineReport } from "./extract/pipeline.ts";
-import { coveredIds } from "./extract/coverage.ts";
-import type { MessageEntry } from "./base/types.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 export const ASSEMBLE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "assemble.ts");
@@ -35,13 +25,6 @@ export const DARWIN_SKILL = join(REPO_ROOT, "packages", "core", "skills", "darwi
 export const INTEGRATE_GUIDE = join(REPO_ROOT, "design", "INTEGRATE_GUIDE.md");
 export const COMPILE_CLI = join(REPO_ROOT, "packages", "core", "scripts", "compile-skills.ts");
 export const COMPILE_DESIGN = join(REPO_ROOT, "design", "SKILL_COMPILER.md");
-
-/** 统一触发：每 N 个未审 user 轮抽一次（全 agent 共用一份逻辑）。
- *  - turn = 一条 user 消息；未审 = 该 msg id 未被任何 atom 的 sources 覆盖。
- *  - stateless：从 entries + coverage 派生，不依赖计数器文件，adapter/进程重启不丢。
- *  - 可配：env AUTOSKILL_EXTRACT_EVERY_N_TURNS 覆盖。
- *  - 命中后 runScheduledExtraction 多批把累积 N 轮一次抽完（不是 1 批）。 */
-export const EXTRACT_EVERY_N_TURNS = Number(process.env.AUTOSKILL_EXTRACT_EVERY_N_TURNS ?? 30);
 
 /** 知识库状态文本（原 kbStats）：atoms 计数 / 待整合 / 体检待触发 / 可编译 / 路径 */
 export function kbStatusText(): string {
@@ -95,32 +78,6 @@ export function pendingNoticeText(): string | undefined {
     // 提示失败不影响会话
   }
   return parts.length ? parts.join("\n\n") : undefined;
-}
-
-/** 数本会话未审的 user 消息（=未抽取的轮数）。stateless：entries + coverage 派生。 */
-export function unreviewedUserTurns(entries: MessageEntry[], sessionId: string): number {
-  if (entries.length === 0) return 0;
-  const covered = coveredIds(entries, sessionId);
-  return entries.filter((e) => e.message?.role === "user" && e.id && !covered.has(e.id)).length;
-}
-
-/** 每 N 轮闸：未审 user 轮 >= N 才抽。返回 {extract, pending, threshold} 供 adapter 决策/日志。 */
-export function shouldExtractOnTurn(
-  entries: MessageEntry[], sessionId: string, n: number = EXTRACT_EVERY_N_TURNS,
-): { extract: boolean; pending: number; threshold: number } {
-  const pending = unreviewedUserTurns(entries, sessionId);
-  return { extract: pending >= n && n > 0, pending, threshold: n };
-}
-
-/** 命中后：多批把累积的 N 轮一次抽完（批次随 N 缩放，不是 1 批）。
- *  N=30 → 3 批 / 120k；上限 8 批 / 240k 防失控。 */
-export async function runScheduledExtraction(
-  sessionId: string, entries: MessageEntry[], harness: "pi" | "dsh" = "pi",
-  n: number = EXTRACT_EVERY_N_TURNS,
-): Promise<PipelineReport> {
-  const maxBatches = Math.min(8, Math.ceil(Math.max(1, n) / 10));
-  const budgetTokens = Math.min(240_000, maxBatches * 40_000);
-  return runPipeline({ sessionId, entries, harness, maxBatches, budgetTokens });
 }
 
 export { applyPatches, logError };

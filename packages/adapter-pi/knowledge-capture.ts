@@ -26,7 +26,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setHostContext } from "../../packages/core/lib/base/context.ts";
 import { setModelRegistry, activeConfigDescription, chatComplete } from "../../packages/core/lib/base/llm.ts";
 import { appendUsage } from "../../packages/core/lib/skill/usage-store.ts";
-import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
 import { checkSkillDrift, describeDrift } from "../../packages/core/lib/sync/drift.ts";
@@ -194,19 +193,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("kb", {
     description: "知识库状态（知识卡片计数与路径）",
     handler: async (_args, ctx) => {
-      let extra = "";
-      try {
-        const id = ctx.sessionManager.getSessionId();
-        const all = ctx.sessionManager.getEntries() as Array<{ type?: string; id?: string }>;
-        const entries = all.filter((e) => e?.type === "message" && typeof e?.id === "string") as unknown as MessageEntry[];
-        if (id && entries.length > 0) {
-          const cov = coverageReport(entries, id);
-          extra = `\n本条会话：已覆盖 ${cov.covered}/${cov.total}，待审 ${cov.unreviewed}`;
-        }
-      } catch {
-        // 状态展示失败不影响命令
-      }
-      ctx.ui.notify(kbStatusText() + extra, "info");
+      ctx.ui.notify(kbStatusText(), "info");
     },
   });
 

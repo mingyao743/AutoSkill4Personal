@@ -12,8 +12,8 @@
  *   - 取消：透传 signal；宿主 finish 的 error/aborted 转成 throw，交给 core 记 errors.log
  *   - usage：inputTokens/outputTokens/totalTokens；网关不回 usage 时省略（只影响预算统计）
  *
- * dispatch：spawn CLI 仍然优先（隔离、不占宿主事件循环）；只有 standalone 凭据不可用时，
- * 才退回“进程内管线”（tools.ts runPipelineInProcess），那条路走本桥。
+ * 用法：编译/compaction 需要调 LLM 时，如果 standalone 凭据不可用，
+ * 走本桥直接调宿主服务 `ctx.llm`（进程内、不 spawn 子进程）。
  */
 import type { Context } from "@deepseek-ai/cordis";
 import {

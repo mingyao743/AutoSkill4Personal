@@ -1,18 +1,10 @@
 /**
- * 窗口切分：user msg 对齐，窗口间不重叠。
- * 默认 50 条/窗：当前抽取主要由 compaction 抢救触发（待压缩区一次性进来，全靠默认值），
- * 小窗让单次 LLM 调用的知识密度可控、失败重试成本低；条数与字符预算减半对齐。
- * 纯函数、纯内存——在线(extension)与离线(CLI)共用同一份逻辑。
+ * 会话解析：从 session.jsonl 原始行流解析出 MessageEntry[]。
+ *
+ * 在线(extension)与离线(CLI/capture)共用——dsh 的 v4 事件形状在此归一成 pi 的 MessageEntry。
+ * 旧的 50 条消息窗切分（buildWindows）随 atoms 抽取管线一起删除了。
  */
-import type { MessageEntry, SessionEntry, Window } from "../base/types.ts";
-
-export interface WindowOptions {
-  maxEntries?: number; // 每窗最大消息条数（默认 50）
-  maxChars?: number;   // 每窗序列化后字符预算（默认 40000，与条数上限对齐）
-}
-
-const isUserMsg = (e: SessionEntry): e is MessageEntry =>
-  e.type === "message" && e.message?.role === "user";
+import type { MessageEntry, SessionEntry } from "../base/types.ts";
 
 /** 从 session.jsonl 原始行流解析出消息 entries */
 export function parseSession(lines: string[]): MessageEntry[] {
@@ -96,83 +88,3 @@ function normalizeDshEntry(e: Record<string, unknown>, toolNames: Map<string, st
     message: { role, content, timestamp: e.time } as MessageEntry["message"],
   };
 }
-
-/**
- * user msg 对齐切窗：
- * 1. 从第一个 user msg 开始；
- * 2. 累积至 maxEntries 或序列化字符预算超限；
- * 3. 关窗时边界落到下一个 user msg（保证事件完整，下一个窗口以 user 开头）。
- */
-export function buildWindows(
-  entries: MessageEntry[],
-  sessionId: string,
-  opts: WindowOptions = {}
-): Window[] {
-  const maxEntries = opts.maxEntries ?? 50;
-  const maxChars = opts.maxChars ?? 40_000;
-
-  // 跳过首个 user msg 之前的内容
-  let start = entries.findIndex(isUserMsg);
-  if (start < 0) return [];
-
-  const windows: Window[] = [];
-  // 短 session id：8 位十六进制。必须剥掉 dsh 的 "session-" 前缀，
-  // 否则 "session-<uuid>" 去连字符后前 8 位恒为 "session9" → 所有会话窗口 id 撞车。
-  const shortId = sessionId
-    .replace(/^session-/, "")
-    .replace(/-/g, "")
-    .slice(0, 8)
-    .toLowerCase();
-
-  let i = start;
-  let seq = 1;
-  while (i < entries.length) {
-    const windowStart = i;
-    let count = 0;
-    let chars = 0;
-    while (i < entries.length && count < maxEntries && chars < maxChars) {
-      chars += estimateChars(entries[i]);
-      count++;
-      i++;
-    }
-    // 关窗边界落在下一个 user msg：把后续非 user 消息并入本窗（补完当前事件）
-    while (i < entries.length && !isUserMsg(entries[i])) {
-      i++;
-    }
-    const windowEntries = entries.slice(windowStart, i);
-    if (windowEntries.length === 0) break;
-    windows.push({
-      window_id: `win_${shortId}_${String(seq).padStart(3, "0")}`,
-      session_id: sessionId,
-      msg_range: [windowEntries[0].id, windowEntries[windowEntries.length - 1].id],
-      entry_count: windowEntries.length,
-      entries: windowEntries,
-    });
-    seq++;
-  }
-  return windows;
-}
-
-/** 序列化字符量的粗估（与下方 TOOL_RESULT_TRUNC 截断规则一致） */
-function estimateChars(e: MessageEntry): number {
-  const msg = e.message;
-  if (msg.role === "toolResult") return TOOL_RESULT_TRUNC + 64;
-  if (typeof msg.content === "string") return msg.content.length + 64;
-  let n = 64;
-  for (const b of msg.content ?? []) {
-    if (b.type === "text") n += (b as TextBlock2).text.length;
-    else if (b.type === "toolCall" || b.type === "tool-call" || b.type === "tool_call") {
-      // dsh 的 arguments 是 JSON 字符串、pi 是对象；两种都按序列化后长度估
-      const a = (b as ToolCallBlock2).arguments;
-      n += (typeof a === "string" ? a.length : JSON.stringify(a ?? {}).length) + 128;
-    }
-    // thinking 块不计入（序列化时丢弃）
-  }
-  return n;
-}
-
-type TextBlock2 = { type: "text"; text: string };
-type ToolCallBlock2 = { type: string; arguments: Record<string, unknown> | string };
-
-/** 工具结果截断长度 */
-export const TOOL_RESULT_TRUNC = 1500;

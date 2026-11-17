@@ -1,7 +1,7 @@
 /**
  * 窗口切分：把「N 个已完成轮次」切成一份可交给编译器的 window.json。
  *
- * 与 `extract/window.ts` 的区别：那个是旧的 50 条消息窗（compaction 抢救用），
+ * `extract/window.ts` 的 `parseSession` 负责会话行流 → MessageEntry[] 归一，
  * 这个是**按轮次**切（30 轮），且带哈希与来源信息，落盘给编译器。
  *
  * 预算规则（方案 §4）：
