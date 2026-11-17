@@ -1,0 +1,17 @@
+#!/bin/sh
+# ow 稳定入口：无论从 PATH、软链还是仓库里调用，都能解析到仓库根。
+# install-skill 会把它软链到 ~/.config/qdoc/bin/ow。
+set -eu
+
+SOURCE=$0
+while [ -L "$SOURCE" ]; do
+  DIR=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")" && pwd)
+  TARGET=$(readlink "$SOURCE")
+  case $TARGET in
+    /*) SOURCE=$TARGET ;;
+    *) SOURCE=$DIR/$TARGET ;;
+  esac
+done
+REPO_DIR=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")/.." && pwd)
+
+exec node --experimental-strip-types "$REPO_DIR/packages/cli/src/main.ts" "$@"

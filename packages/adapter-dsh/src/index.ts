@@ -18,10 +18,12 @@ import { setHostContext, hostContext } from "../../core/lib/base/context.ts";
 import { logError } from "../../core/lib/base/atom-store.ts";
 import { installDshLlm, type LlmBridgeConfig } from "./llm-bridge.ts";
 import { checkSkillDrift, describeDrift } from "../../core/lib/sync/drift.ts";
+import { maybeAutoSync } from "../../core/lib/sync/auto-check.ts";
 import {
 	setDshHome, setAutoInit, getCurrentSessionFile, latestSessionFile, runCycle,
 } from "./tools.ts";
 import { resolveVault } from "../../core/lib/vault/init.ts";
+import { readSessionHeader } from "../../core/lib/trigger/session-file.ts";
 import { drainPendingCapture } from "../../core/lib/trigger/capture.ts";
 
 export interface Config {
@@ -104,13 +106,25 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 	let lastFile: string | undefined;
 	let lastMtime = 0;
 
-	const tick = (): void => {
-		// 排空「待补跑」死信队列（capture.json）：CLI 无凭据时落下的编译任务，
-		// in-process ChatCompleter 已就位，补跑掉。独立于当前会话 mtime——否则当前
-		// 会话 idle 时（如已结束的历史 session 留下的队列）永远没人取。
-		void drainPendingCaptureForCwd().catch((e) => {
-			logError(`[autoskill] 排空 capture 队列失败: ${String(e).slice(0, 300)}`);
+	let idleRetry: NodeJS.Timeout | undefined;
+	const runWhenReady = (file: string): void => {
+		void runCycle(file).then((status) => {
+			// 满窗但会话还没空闲：90s 后再试一次（只挂一个定时器）
+			if (status === "not-idle" && !idleRetry) {
+				idleRetry = setTimeout(() => {
+					idleRetry = undefined;
+					runWhenReady(file);
+				}, 30_000);
+			} else if (status !== "not-idle" && idleRetry) {
+				clearTimeout(idleRetry);
+				idleRetry = undefined;
+			}
+		}).catch((e) => {
+			logError(`[autoskill] runCycle 失败: ${String(e).slice(0, 300)}`);
 		});
+	};
+
+	const tick = (): void => {
 		try {
 			const f = getCurrentSessionFile() ?? latestSessionFile();
 			if (!f || !existsSync(f)) return;
@@ -118,10 +132,29 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 			if (f === lastFile && mtime === lastMtime) return; // 没有新消息，跳过
 			lastFile = f;
 			lastMtime = mtime;
-			// 30 轮闸、信号门、两级锁、编译全在 runCycle 里；这里只负责「文件变了就试一次」
-			void runCycle(f).catch((e) => {
-				logError(`[autoskill] runCycle 失败: ${String(e).slice(0, 300)}`);
+
+			// 排空该会话 cwd 对应 vault 的 capture.json 死信队列。按会话头 cwd 解析，
+			// 不再依赖 GUI 进程自己的 cwd。
+			void drainPendingCaptureForSession(f).catch((e) => {
+				logError(`[autoskill] 排空 capture 队列失败: ${String(e).slice(0, 300)}`);
 			});
+
+			// 每日首次用户活动：仓库漂移 + 平台技能检查。幂等、异步、与编译互不等待。
+			if (process.env.OW_AUTO_CHECK !== "0") {
+				const cwd = readSessionHeader(f)?.cwd;
+				const vaultDir = cwd ? resolveVault({ cwd, autoInit: false })?.dir : undefined;
+				void maybeAutoSync({
+					host: "dsh",
+					vaultDir,
+					notify: (m) => logError(m),
+				}).catch((e) => {
+					logError(`[autoskill] autoSync 失败: ${String(e).slice(0, 300)}`);
+				});
+			}
+
+			// 30 轮闸、信号门、两级锁、编译全在 runCycle 里；这里只负责「文件变了就试一次」。
+			// runWhenReady 会在“满窗但未空闲”时 30s 后重试。
+			runWhenReady(f);
 		} catch {
 			// 定时器异常不影响宿主
 		}
@@ -132,18 +165,20 @@ function startPipelineTimer(ctx: Context, config: Partial<Config>): void {
 	ctx.effect(() => () => {
 		clearInterval(timer);
 		clearTimeout(first);
+		if (idleRetry) clearTimeout(idleRetry);
 	});
 }
 
 /**
- * 排空当前 cwd 对应 vault 的 capture.json 死信队列。
+ * 排空「该会话 cwd」对应 vault 的 capture.json 死信队列。
  *
- * runCycle 内部按会话头里的 cwd 解析 vault（与落队列时是同一个 vault），
- * 所以这里只要找到当前项目的 vault、把队列里每条 item 的 session_file 喂给
- * runCycle 即可。没 vault（当前目录没 .qdoc）就无事可做。
+ * 用会话头的 cwd，而不是 GUI 进程的 cwd——否则换个 workspace 就找不到队列。
+ * runCycle 内部同样按会话头解析 vault，所以队列项和编译落在同一个 vault。
  */
-async function drainPendingCaptureForCwd(): Promise<void> {
-	const vault = resolveVault({ cwd: process.cwd(), autoInit: false });
+async function drainPendingCaptureForSession(sessionFile: string): Promise<void> {
+	const cwd = readSessionHeader(sessionFile)?.cwd;
+	if (!cwd) return;
+	const vault = resolveVault({ cwd, autoInit: false });
 	if (!vault) return;
 	await drainPendingCapture(vault.dir, (sf) => runCycle(sf));
 }

@@ -4,9 +4,10 @@
  * 推：本地 → 平台（`import_skill_from_files` / `update_skill`）
  * 拉：平台 → 本地（两级：轻量列表 + 全量内容比对）
  *
- * 拉的两级设计（方案 §10.10）：
- *  - 每 30 分钟：`list_available_skills`（2.9KB / 29ms）→ 发现新增、移除/禁用
- *  - 每天 03:00：逐个 `get_skill`（1.27MB / 3.7s）→ 发现内容更新
+ * 自动检查：每天第一次有用户活动时跑一次（见 sync/auto-check.ts）；
+ * `ow sync` 保留为手动全量/补跑入口：
+ *  - `--light`：`list_available_skills`（2.9KB / 29ms）→ 发现新增、移除/禁用
+ *  - 全量：逐个 `get_skill`（1.27MB / 3.7s）→ 发现内容更新
  *
  * 为什么不全量：6 个技能全量 1.27MB，每小时一次就是 30MB/天。
  * 为什么不能只轻量：`list_available_skills` 不返回 version，查不出内容更新。
@@ -17,16 +18,19 @@ import { QdocMcpClient } from "../../../core/lib/publish/mcp.ts";
 import { scanSkillsDir, pushSkill, checkEligibility, extractSkillDescription } from "../../../core/lib/publish/skill.ts";
 import { pullSkills, checkLight, describePull, readSkillDir, extractSkillFiles } from "../../../core/lib/sync/pull-skill.ts";
 import {
-  recordPush, manifestStats, stalePendingEnable, hashSkillFiles,
+  recordPush, manifestStatsAll, stalePendingEnableAll, hashSkillFiles,
 } from "../../../core/lib/sync/manifest.ts";
 import { queueSkillOverwrite, queueSkillPendingEnable } from "./review.ts";
 import { isAllowed } from "../../../core/lib/review/pending.ts";
 import { needVault, out } from "../vault-ctx.ts";
 import { flagBool, flagString, type ParsedArgs } from "../args.ts";
+import { HOST_DIRS, hostSkillDir, type HostName } from "../../../core/lib/sync/install.ts";
 
-/** 本地技能目录（宿主不同位置不同） */
+const SYNC_HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy"];
+
+/** 本地技能目录（宿主不同位置不同；与 install-skill / drift 共用一份 HOST_DIRS） */
 export function localSkillsDir(host: string): string {
-  if (host === "pi") return join(homedir(), ".pi", "agent", "skills");
+  if (host in HOST_DIRS) return hostSkillDir(host as HostName);
   return join(homedir(), ".dsh", "skills");
 }
 
@@ -34,13 +38,21 @@ export async function runSync(args: ParsedArgs): Promise<number> {
   const v = needVault(args);
   const dryRun = flagBool(args, "dry-run");
   const direction = flagString(args, "direction") ?? "both";
-  const host = flagString(args, "host") ?? "dsh";
+  const hostArg = flagString(args, "host") ?? "dsh";
+  if (hostArg !== "all" && !SYNC_HOSTS.includes(hostArg as HostName)) {
+    process.stderr.write(`未知宿主：${hostArg}（可选 ${SYNC_HOSTS.join("|")}|all）\n`);
+    return 2;
+  }
+  const hostList: HostName[] = hostArg === "all" ? SYNC_HOSTS : [hostArg as HostName];
   const lightOnly = flagBool(args, "light");
   const adopt = flagBool(args, "adopt");
   const only = flagString(args, "only");
   const yes = flagBool(args, "yes");
   // --skills-root 覆盖默认位置：多宿主、自定义目录、或沙箱里指向可写区
-  const skillsRoot = flagString(args, "skills-root") ?? localSkillsDir(host);
+  // 指定它时只处理第一个宿主，避免把同一个目录写四遍。
+  const skillsRootOverride = flagString(args, "skills-root");
+  const pushRoot = skillsRootOverride ?? localSkillsDir(hostList[0]);
+  const effectiveHosts = skillsRootOverride ? [hostList[0]] : hostList;
 
   const client = new QdocMcpClient({ token: process.env.QDOC_TOKEN });
   await client.initialize();
@@ -50,7 +62,7 @@ export async function runSync(args: ParsedArgs): Promise<number> {
   let pulled = 0;
 
   // ---------- 轻量检查（29ms，无论哪个方向都先跑） ----------
-  const light = await checkLight({ client, vaultDir: v.dir });
+  const light = await checkLight({ client, vaultDir: v.dir, host: hostList[0] });
   if (light.healed.length > 0) {
     lines.push(`✓ 待启用自愈：${light.healed.join(", ")} 已在平台启用`);
   }
@@ -60,7 +72,7 @@ export async function runSync(args: ParsedArgs): Promise<number> {
   if (light.missingOnPlatform.length > 0) {
     lines.push(`· 平台已禁用/移除：${light.missingOnPlatform.join(", ")}（本地保留，未删）`);
   }
-  const stale = stalePendingEnable(v.dir);
+  const stale = stalePendingEnableAll(v.dir);
   if (stale.length > 0) {
     lines.push(
       `⚠ 这些技能推上去超过 7 天仍未启用：${stale.join(", ")}`,
@@ -69,7 +81,7 @@ export async function runSync(args: ParsedArgs): Promise<number> {
   }
 
   if (lightOnly) {
-    const st = manifestStats(v.dir);
+    const st = manifestStatsAll(v.dir);
     lines.push("", `清单：共 ${st.total}（拉取 ${st.pulled} / 推送 ${st.pushed} / 本地 ${st.local}），待启用 ${st.pendingEnable}`);
     out(args, lines.join("\n"), {
       light: { healed: light.healed, newOnPlatform: light.newOnPlatform, missingOnPlatform: light.missingOnPlatform },
@@ -80,8 +92,8 @@ export async function runSync(args: ParsedArgs): Promise<number> {
 
   // ---------- 推：本地 → 平台 ----------
   if (direction === "both" || direction === "push") {
-    lines.push("", `推送（本地 ${skillsRoot}）：`);
-    const local = scanSkillsDir(skillsRoot).filter((s) => !only || s.name === only);
+    lines.push("", `推送（本地 ${pushRoot}；多宿主只以 ${hostList[0]} 为准）：`);
+    const local = scanSkillsDir(pushRoot).filter((s) => !only || s.name === only);
     for (const s of local) {
       const elig = checkEligibility(s);
       if (!elig.ok) {
@@ -149,32 +161,35 @@ export async function runSync(args: ParsedArgs): Promise<number> {
           sha: hashSkillFiles(s.files),
           target: s.dir,
           pendingEnable: r.needsEnable === true,
-        });
+        }, hostList[0]);
       }
     }
   }
 
   // ---------- 拉：平台 → 本地 ----------
   if (direction === "both" || direction === "pull") {
-    lines.push("", `拉取（平台 → ${skillsRoot}）：`);
-    const results = await pullSkills({ client, vaultDir: v.dir, skillsRoot, dryRun, adopt });
-    const adoptable: string[] = [];
-    for (const r of results) {
-      if (r.action === "created" || r.action === "updated" || r.action === "adopted") pulled++;
-      if (r.action === "adoptable") adoptable.push(r.name);
-      lines.push(describePull(r));
-    }
-    if (adoptable.length > 0) {
-      lines.push(
-        "",
-        `有 ${adoptable.length} 个本地技能内容与平台不同，未自动接管：${adoptable.join(", ")}`,
-        "  · 想交给平台管：ow sync --direction pull --adopt（保留本地内容，后续平台更新会覆盖）",
-        "  · 想自己留着：什么都不做，本工具永远不碰它",
-      );
+    for (const h of effectiveHosts) {
+      const skillsRoot = skillsRootOverride ?? localSkillsDir(h);
+      lines.push("", `拉取（平台 → ${h}: ${skillsRoot}）：`);
+      const results = await pullSkills({ client, vaultDir: v.dir, skillsRoot, dryRun, adopt, host: h });
+      const adoptable: string[] = [];
+      for (const r of results) {
+        if (r.action === "created" || r.action === "updated" || r.action === "adopted") pulled++;
+        if (r.action === "adoptable") adoptable.push(r.name);
+        lines.push(describePull(r));
+      }
+      if (adoptable.length > 0) {
+        lines.push(
+          "",
+          `有 ${adoptable.length} 个本地技能内容与平台不同，未自动接管：${adoptable.join(", ")}`,
+          "  · 想交给平台管：ow sync --direction pull --adopt（保留本地内容，后续平台更新会覆盖）",
+          "  · 想自己留着：什么都不做，本工具永远不碰它",
+        );
+      }
     }
   }
 
-  const st = manifestStats(v.dir);
+  const st = manifestStatsAll(v.dir);
   lines.push(
     "",
     `合计：推送 ${pushed}、拉取 ${pulled}${dryRun ? "（干跑）" : ""}`,

@@ -30,7 +30,8 @@ interface DshStreamChunk {
 }
 
 export interface DshLlmService {
-	listProviders(): Array<{ provider: string }>;
+	/** dsh 的 LlmProviderInfo：路由键在 `id`，不是 `provider`（2026-11-17 实测） */
+	listProviders(): Array<{ id: string; name?: string }>;
 	listModels(provider: string): Promise<Array<{ provider: string; id: string; name: string }>>;
 	stream(options: Record<string, unknown>): AsyncIterable<DshStreamChunk>;
 }
@@ -79,7 +80,7 @@ async function resolveTarget(
 	config: LlmBridgeConfig,
 	explicitModel?: string,
 ): Promise<LlmTarget> {
-	const routes = (llm.listProviders() ?? []).map((r) => r?.provider).filter((p): p is string => typeof p === "string" && p.length > 0);
+	const routes = (llm.listProviders() ?? []).map((r) => r?.id).filter((p): p is string => typeof p === "string" && p.length > 0);
 	if (routes.length === 0) throw new Error("dsh llm 服务未注册任何 provider 路由");
 
 	// 显式 `provider/model` 只在路由存在时覆盖 provider，避免把整串当模型名发给错路由

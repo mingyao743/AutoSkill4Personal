@@ -8,8 +8,9 @@
  */
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { runCapture, planWindows, describeCredentialSituation } from "../../../core/lib/trigger/capture.ts";
+import { runCapture, planWindows, describeCredentialSituation, ensurePiHostContext } from "../../../core/lib/trigger/capture.ts";
 import { latestSessionFileIn } from "../../../adapter-dsh/src/session-path.ts";
+import { isPiSessionFile, latestPiSessionFile } from "../../../core/lib/trigger/pi-session.ts";
 import { needVault, out } from "../vault-ctx.ts";
 import { flagBool, flagString, type ParsedArgs } from "../args.ts";
 
@@ -21,17 +22,35 @@ function compilerSkillDir(): string {
 export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
   const v = needVault(args);
   const explicit = flagString(args, "session");
-  const file = explicit ?? latestSessionFileIn(undefined, process.cwd());
+  const agentFlag = flagString(args, "agent");
+  if (agentFlag && agentFlag !== "dsh" && agentFlag !== "pi") {
+    process.stderr.write(`未知 --agent：${agentFlag}（可选 dsh|pi）\n`);
+    return 2;
+  }
+
+  // 不指定文件时：先找当前项目 dsh 会话，再找 pi 会话
+  let file = explicit;
+  let agent: "dsh" | "pi" | undefined = agentFlag as "dsh" | "pi" | undefined;
+  if (!file) {
+    file = latestSessionFileIn(undefined, process.cwd());
+    if (file) agent ??= "dsh";
+    else {
+      file = latestPiSessionFile(process.cwd());
+      if (file) agent ??= "pi";
+    }
+  }
+  if (file && !agent) agent = isPiSessionFile(file) ? "pi" : "dsh";
 
   if (!file || !existsSync(file)) {
     process.stderr.write(
       "找不到会话文件。\n" +
-      (explicit ? `指定路径不存在：${explicit}\n` : "当前目录下没有 dsh 会话记录。\n") +
+      (explicit ? `指定路径不存在：${explicit}\n` : "当前目录下没有 dsh 或 pi 会话记录。\n") +
       "用 --session <文件> 指定，或在 agent 里说「小q 沉淀」。\n",
     );
     return 2;
   }
 
+  if (agent === "pi") ensurePiHostContext();
   const planOnly = flagBool(args, "plan");
   const opts = {
     sessionFile: file,
@@ -40,6 +59,7 @@ export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
     turns: Number(flagString(args, "turns") ?? 30),
     maxWindows: Number(flagString(args, "max-windows") ?? 8),
     planOnly,
+    agent,
     // `ow capture` 本身就是手动入口（用户说「小q 沉淀」或主动敲命令），
     // 所以跳过信号门（方案 §6.5）。--auto 可以强制走自动判定。
     manual: !flagBool(args, "auto"),
@@ -51,7 +71,7 @@ export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
       out(args, "没有待编译窗口（会话未满一个窗口，或已全部编译过）。", { windows: [] });
       return 0;
     }
-    const lines = [`会话：${file}`, `凭据：${describeCredentialSituation()}`, ""];
+    const lines = [`会话：${file}`, `宿主：${agent}`, `凭据：${describeCredentialSituation()}`, ""];
     for (const w of wins) {
       const keep = w.signal.keep || w.forced;
       const mark = keep ? "✓" : "✗";
@@ -86,13 +106,15 @@ export async function runCaptureCmd(args: ParsedArgs): Promise<number> {
         "CLI 进程没有可用的模型凭据，无法直接编译。",
         `原因：${r.reason}`,
         "",
-        "已排队，等宿主会话接手：",
-        ...r.queued.map((q) => `  · ${q}`),
-        "",
+        ...(r.queued.length > 0
+          ? ["已排队，等宿主会话接手：", ...r.queued.map((q) => `  · ${q}`), ""]
+          : agent === "pi"
+            ? ["pi 侧不会消费 CLI 队列；请回 pi 会话里说「小q 沉淀」或等自动触发。", ""]
+            : []),
         "两条出路：",
         "  1. 回 agent 里说「小q 沉淀」——用宿主自己的凭据编译（推荐）",
         "  2. 配独立凭据：export OPENAI_API_KEY=... 或 AUTOSKILL_PROVIDER=...",
-      ].join("\n"), { status: r.status, reason: r.reason, queued: r.queued });
+      ].join("\n"), { status: r.status, reason: r.reason, queued: r.queued, agent });
       return 3;
     case "compiled": {
       const total = r.reports.reduce((n, x) => n + x.pages_created + x.pages_updated, 0);

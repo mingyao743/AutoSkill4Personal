@@ -27,6 +27,7 @@ import { runPromote } from "./commands/promote.ts";
 import { runTodo } from "./commands/todo.ts";
 import { runDoc } from "./commands/doc.ts";
 import { runMcpConfig } from "./commands/mcp-config.ts";
+import { runDoctor } from "./commands/doctor.ts";
 
 const HELP = `ow —— qdoc 知识库工具
 
@@ -35,7 +36,7 @@ const HELP = `ow —— qdoc 知识库工具
 命令：
   init        初始化 .qdoc/ vault（幂等）
   status      状态：轮次水位、待发布、预算、锁
-  capture     手动编译会话（--plan 只看窗口，--session 指定文件）
+  capture     手动编译会话（--plan 只看窗口，--session / --agent 指定来源）
   publish     把 pending 页推到 qdoc.chat
   query <词>  在线检索已发布文档
   sync        技能双向同步（推 + 拉）
@@ -45,12 +46,14 @@ const HELP = `ow —— qdoc 知识库工具
   todo        平台待办（list/add/done/undone/edit/projects，纯透传）
   doc         已发布文档改名/改 tag（doc rename / doc tag）
   mcp-config  生成各宿主（qoder/codebuddy/workbuddy）接 qdoc MCP 的 JSON
+  doctor      宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移）
 
 选项：
   --vault <dir>   指定 vault（默认从 cwd 向上找）
   --dry-run       只跑门禁，不真的调平台
   --json          输出 JSON（供 skill 解析）
   --session <f>   capture 用的会话文件
+  --agent <dsh|pi> capture 的宿主（默认按路径识别）
   --plan          capture 只切窗不编译
   --help          显示本帮助
 `;
@@ -77,6 +80,7 @@ async function main(): Promise<number> {
       case "todo": return await runTodo(args);
       case "doc": return await runDoc(args);
       case "mcp-config": return await runMcpConfig(args);
+      case "doctor": return await runDoctor(args);
       default:
         process.stderr.write(`未知命令：${args.command}\n\n${HELP}`);
         return 2;

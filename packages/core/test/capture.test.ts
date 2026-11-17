@@ -60,6 +60,26 @@ function makeChatter(dir: string, turns: number, id = "session-chat"): string {
   return p;
 }
 
+/** 造一个 pi 会话：session 头 + 3 轮 user/assistant，带 parentId 链 */
+function makePiSession(dir: string, turns = 3, id = "pi-sess-1"): string {
+  const lines: string[] = [JSON.stringify({ type: "session", version: 3, id, cwd: "/proj" })];
+  let prev: string | null = null;
+  let seq = 0;
+  for (let t = 1; t <= turns; t++) {
+    const uid = `u${t}`;
+    const aid = `a${t}`;
+    lines.push(JSON.stringify({ type: "message", id: uid, parentId: prev, timestamp: new Date(2026, 0, 1, 0, t).toISOString(), message: { role: "user", content: [{ type: "text", text: `帮我修第 ${t} 个报错：cannot find module` }] } }));
+    lines.push(JSON.stringify({ type: "message", id: aid, parentId: uid, timestamp: new Date(2026, 0, 1, 0, t, 30).toISOString(), message: { role: "assistant", content: [{ type: "text", text: `原因是依赖没装，跑 npm i foo 即可。第 ${t} 次验证。` }] } }));
+    prev = aid;
+    seq += 2;
+  }
+  const d = join(dir, ".pi", "agent", "sessions", "--proj--", id);
+  mkdirSync(d, { recursive: true });
+  const p = join(d, "session.jsonl");
+  writeFileSync(p, lines.join("\n"), "utf8");
+  return p;
+}
+
 const tmp = (): string => mkdtempSync(join(tmpdir(), "qdoc-cap-"));
 
 section("切窗：按 turns 分批");
@@ -201,6 +221,28 @@ section("手动触发：纯闲聊也会被编译（不被信号门拒）");
   const man = await runCapture({ ...base, manual: true });
   ok(man.status === "planned" && man.queued.length === 1, "手动：窗口入队（跳过信号门）", JSON.stringify(man));
 
+  rmSync(root, { recursive: true, force: true });
+}
+
+section("pi 手动入口：按路径识别 + 切窗");
+{
+  const root = tmp();
+  const file = makePiSession(root, 3);
+  const vault = initVault(join(root, "proj"));
+  const wins = planWindows({ sessionFile: file, vaultDir: vault.dir, skillDir: "/x", agent: "pi", turns: 2 });
+  eq(wins.length, 1, "3 轮按每窗 2 轮 → 1 个完整窗");
+  eq(wins[0].from_turn, 1, "pi 第一窗从 1");
+  eq(wins[0].to_turn, 2, "pi 第一窗到 2");
+
+  // 不传 agent 时按路径识别；这里文件名不是 dsh 的 session.v4，仍要能识别为 pi
+  const auto = planWindows({ sessionFile: file, vaultDir: vault.dir, skillDir: "/x", turns: 2 });
+  eq(auto.length, 1, "自动识别 pi 会话");
+
+  const planned = await runCapture({
+    sessionFile: file, vaultDir: vault.dir, skillDir: "/x", agent: "pi",
+    turns: 2, planOnly: true, manual: true,
+  });
+  ok(planned.status === "planned" && planned.windows.length === 1, "pi 手动入口走通", JSON.stringify(planned));
   rmSync(root, { recursive: true, force: true });
 }
 

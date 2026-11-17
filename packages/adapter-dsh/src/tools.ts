@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostContext } from "../../core/lib/base/context.ts";
 import { parseSession } from "../../core/lib/extract/window.ts";
-import { sessionFileFor, latestSessionFileIn, sessionIdFromFile } from "./session-path.ts";
+import { sessionFileFor, latestSessionFileAnywhere, sessionIdFromFile } from "./session-path.ts";
 import { maybeCompile } from "../../core/lib/trigger/cycle.ts";
 import { readSessionLines, sessionIdFromPath, isSubagentSession } from "../../core/lib/trigger/session-file.ts";
 
@@ -74,6 +74,8 @@ export async function runCycle(sessionFile: string): Promise<string> {
 		cwd,
 		skillDir: COMPILER_SKILL_DIR,
 		autoInit: autoInitVault || process.env.OW_AUTO_INIT === "1",
+		// 模型跟随会话：从 request/header 读；llm-bridge 的 remembered 可能从未被调用
+		model: modelFromSessionEvents(events),
 	});
 	return outcome.status;
 }
@@ -128,6 +130,27 @@ function attachSeqs(
 /** 会产生 MessageEntry 的事件类型 */
 const MESSAGE_EVENT_TYPES = new Set(["message", "user/message", "assistant/message", "tool/result"]);
 
+/**
+ * 从 dsh 会话事件里读当前 provider/model。
+ *
+ * 实测形状（方案 §3.1）：
+ *   {"type":"request/header","data":{"header":{"config":{"provider":"…","model":"…"}}}}
+ * 读不到就返回 undefined，由 llm-bridge 走显式配置/首个 provider。
+ */
+export function modelFromSessionEvents(events: Array<Record<string, unknown>>): string | undefined {
+	for (const e of events) {
+		if (e.type !== "request/header") continue;
+		const data = e.data as Record<string, unknown> | undefined;
+		const header = data?.header as Record<string, unknown> | undefined;
+		const config = header?.config as Record<string, unknown> | undefined;
+		const provider = typeof config?.provider === "string" ? config.provider : undefined;
+		const model = typeof config?.model === "string" ? config.model : undefined;
+		if (provider && model) return `${provider}/${model}`;
+		if (model) return model;
+	}
+	return undefined;
+}
+
 /** 从事件里取消息 id（dsh 的三种形状） */
 function messageIdOf(e: Record<string, unknown>): string | undefined {
 	const data = e.data as Record<string, unknown> | undefined;
@@ -181,9 +204,14 @@ export function getCurrentSessionFile(): string | undefined {
 	return currentSessionFile;
 }
 
-/** 兜底：扫描 cwd 对应的 sessions 目录，取 mtime 最新的会话文件 */
+/**
+ * 兜底：扫描**全机所有** sessions slug，取 mtime 最新的会话文件。
+ *
+ * 旧实现只扫 `process.cwd()` 对应的 slug，GUI 进程 cwd 不是当前项目时永远找不到。
+ * 现在按全机最新会话，再让 `runCycle` 从 session 头的 `cwd` 解析 vault。
+ */
 export function latestSessionFile(): string | undefined {
-	return latestSessionFileIn(configuredDshHome);
+	return latestSessionFileAnywhere(configuredDshHome);
 }
 
 /** 从 agent 会话句柄派生 dsh 会话文件路径（<dshHome>/sessions/<cwd-slug>/<session-id>/session.v4.jsonl[.zstd]） */

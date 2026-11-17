@@ -17,6 +17,7 @@ description: 把当前会话里的知识沉淀成知识页、推到 qdoc.chat、
 | `小q 待办` / `我的待办` | 跑 `ow todo list`，按输出播报 |
 | `小q 记一下 <事>` / `加个待办` | 跑 `ow todo add "<事>"` |
 | `小q` 单独出现 | 先跑 `ow status --json`，按下面规则播报，然后问要做什么 |
+| 当天第一次进入会话 | 宿主会自动做一次技能检查（仓库漂移 + 平台技能）；不需要用户说 |
 
 **唤醒词判定**：句首或独立出现，且后面跟动词（沉淀/查/发布/确认/状态/待办）或什么都不跟，才算命令。
 「小q 那个文档写得不错」这种后面跟名词的，是**正常聊天**，不要触发。
@@ -27,11 +28,15 @@ description: 把当前会话里的知识沉淀成知识页、推到 qdoc.chat、
 ow status --json
 ```
 
+> 如果 `ow` 不在 PATH（`command -v ow` 为空），用 `~/.config/qdoc/bin/ow`；
+> 本仓库里也可以 `npm run ow --silent -- <命令>`。
+
 然后：
 
 1. `sync.pendingReview > 0` → 用**一行**带过：「另有 N 项待确认，说 `小q 确认` 可以处理」
-2. 不展开、不主动追问——用户没问就不说细节
-3. 不要主动提「要不要沉淀」，等用户说
+2. `autoSync.hosts.<host>.lastResult` 有变化时，用一行播报「技能检查：新增 X / 更新 Y / 冲突 Z」
+3. 不展开、不主动追问——用户没问就不说细节
+4. 不要主动提「要不要沉淀」，等用户说
 
 ## 硬性规则
 
@@ -71,7 +76,7 @@ ow doc tag <page|UUID> --add a,b   # 改平台 tag
 ow todo list              # 待办（--all 含已完成）
 ow todo add "事"          # 加待办（--priority 0-3 / --due 日期）
 ow todo done <id>         # 完成待办
-ow sync --light           # 29ms 查平台技能增减
+ow sync --light           # 29ms 查平台技能增减（手动；自动检查已覆盖每日一次）
 ow review                 # 处理待确认（交互）
 ```
 

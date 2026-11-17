@@ -30,6 +30,8 @@ import { coverageReport } from "../../packages/core/lib/extract/coverage.ts";
 import type { MessageEntry } from "../../packages/core/lib/base/types.ts";
 import { maybeCompile } from "../../packages/core/lib/trigger/cycle.ts";
 import { checkSkillDrift, describeDrift } from "../../packages/core/lib/sync/drift.ts";
+import { maybeAutoSync } from "../../packages/core/lib/sync/auto-check.ts";
+import { resolveVault } from "../../packages/core/lib/vault/init.ts";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -141,6 +143,19 @@ export default function (pi: ExtensionAPI) {
       void maybeRunCycle(ctx, "turn").catch((e) => {
         logError(`cycle(turn) 失败: ${String(e).slice(0, 200)}`);
       });
+      // 每日首次用户轮：仓库漂移 + 平台技能检查。幂等、异步、不阻塞本轮。
+      if (process.env.OW_AUTO_CHECK !== "0") {
+        const sm = (ctx as { sessionManager?: { getCwd?: () => string } })?.sessionManager;
+        const cwd = sm?.getCwd?.() ?? process.cwd();
+        const vaultDir = resolveVault({ cwd, autoInit: false })?.dir;
+        void maybeAutoSync({
+          host: "pi",
+          vaultDir,
+          notify: (m, level) => (ctx as { ui?: { notify?: (msg: string, type?: string) => void } }).ui?.notify?.(m, level),
+        }).catch((e) => {
+          logError(`autoSync(pi) 失败: ${String(e).slice(0, 200)}`);
+        });
+      }
     }
     if (noticed || event.messageType !== "user") return;
     noticed = true;

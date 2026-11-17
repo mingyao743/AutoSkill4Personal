@@ -3,27 +3,22 @@
 把 agent 会话中**正在流失的经验**沉淀为可路由、可保鲜、可分发的知识资产：
 
 ```
-经验侧   会话记录 ──抽取──▶ 知识卡片池 ──整合/编译──▶ skills/*.md ──darwin 体检──▶ 持续优化
-                              │
-分发侧   skills ──ow 发布──▶ qdoc 平台 ◀──查询/待办/技能同步── 各 agent 宿主
-                              └─ 知识页 vault（.qdoc/）：门禁 7 道 → 平台文档（台账 + 自愈）
+经验侧   会话记录 ──自动编译──▶ .qdoc/ 知识页 ──7 道门禁──▶ qdoc.chat 文档
+                                  │
+分发侧   agent-skills ──ow sync──▶ 平台技能市场 ──每日首次访问检查──▶ 各宿主技能目录
 ```
 
-两条链共用一个仓库：**经验侧**把对话变成 skill（pi/dsh 宿主内全自动），**分发侧**把 skill 与知识页推上 [qdoc.chat](design/EXTRACTION_QDOC_PLAN_2026-11-13.md) 平台，供四个宿主的 agent 随查随用。
+两条链共用一个仓库：**经验侧**把对话编译成知识页（pi/dsh 宿主内全自动），**分发侧**把技能与知识页推上 [qdoc.chat](design/EXTRACTION_QDOC_PLAN_2026-11-13.md)，供各宿主 agent 随查随用。
 
-## 经验侧：抽取 → 整合 → 编译
+## 经验侧：自动编译 → 知识页
 
-**五入口全自动**：`capture_knowledge`（单条声明）/ `kb_harvest`（收尾全采）/ compaction 抢救（唯一免审）/ quit 终采 / 手动回填 `extract.ts`。共用引擎、幂等跳窗、不占主对话轮次。
+**触发**：每个会话满 30 个已完成轮次，过信号门后编译成 `.qdoc/` 知识页。dsh 定时器轮询会话文件 mtime，pi 用 `before_agent_start` 逐轮钩子；两边共用 `core/trigger/cycle.ts` 的同一份编排（两级文件锁、预算、水位线）。手动入口是 `qdoc` 前门技能（说「小q 沉淀」）。
 
-**准入三问**（任一"否"不入池，判据详见 [STORE_PLAN.md](design/STORE_PLAN.md)）：**可再生吗 / 会改变动作吗 / 说得出损失吗**。通过后按 **8 个文档类型**（sop/spec/template/case/postmortem/convention/index/rubric）分诊，物理分离为 instruction（进正文）/ reference（依据区）/ data（资料层）。
+**幂等**：水位线存 vault 的 `.ow/state.json`，按 `<agent>:<session>` 记已编译到第几轮；同一 `window_hash` 已有报告时只推进水位，不重复调 LLM。
 
-**整合与编译**：
+**发布**：编译只写本地页（`publish_status: pending`），`ow publish` 过 7 道本地门禁后再推平台。
 
-- 日常主路径：知识卡片即待办队列，agent 写提案进 `intake/`，`apply-patches` 按 `base_skill_sha` 自愈消费（冲突只重做不丢失）
-- 批量/编译：`compile-skills.ts` 就绪门 → 选材 → 编译简报 → `--generate` 调 LLM 产 SKILL.md → M 系列规则校验 → `--route-test` 路由自测（5 正 + 3 负探针）→ `--apply` 写提案
-- 保鲜（darwin）：usage 审计双轨触发（使用次数/拒绝率）→ rubric 9 维体检 + 投票棘轮 + 人在回路
-
-命令细节全部在 [SKILL_COMPILER.md](design/SKILL_COMPILER.md)，不在 README 里堆。
+> 旧的 atoms / 知识卡片 / `compile-skills.ts` 链路仍保留为脚本与实验入口，但**不在自动主路径**；自动沉淀的产物是 `.qdoc/` 知识页。细节见 [SKILL_COMPILER.md](design/SKILL_COMPILER.md)、[STORE_PLAN.md](design/STORE_PLAN.md)。
 
 ## qdoc：平台知识中心（分发侧）
 
@@ -49,13 +44,14 @@ npm run ow --silent -- capture         # 编译当前会话 → 知识页
 npm run ow --silent -- publish --dry-run   # 门禁预检，再去掉 --dry-run 实发
 npm run ow --silent -- query "关键词"   # 查已发布文档
 npm run ow --silent -- todo list       # 平台待办
+ow doctor                              # 宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移）
 ```
 
 全部命令见 `packages/cli/src/main.ts` HELP，常用流程一条龙见 [agent-skills/qdoc/references/playbook.md](agent-skills/qdoc/references/playbook.md)。
 
 ## 多宿主
 
-技能（`agent-skills/` 下含 SKILL.md 的目录）用 `npm run install-skill` 统一装到四家宿主，`--check` 验漂移：
+技能（`agent-skills/` 下含 SKILL.md 的目录）用 `npm run install-skill` 统一装到四家宿主，同时创建 `~/.config/qdoc/bin/ow`；`--check` 验漂移：
 
 | 宿主 | 技能目录 | MCP 接平台 |
 |---|---|---|
@@ -66,6 +62,8 @@ npm run ow --silent -- todo list       # 平台待办
 | WorkBuddy 桌面版 | 技能市场上传 | `ow mcp-config --host workbuddy`（连接器 UI 粘贴） |
 
 MCP 配置三家同构（`mcpServers` + http + headers），`alwaysAllow` 只放只读工具，写操作保留逐次确认。给新宿主单独发 token，可单独吊销。
+
+**每日首次访问自动检查**：当天第一次有用户轮次时，宿主会做一次仓库技能漂移检查 + 平台技能拉取（状态在 `~/.config/qdoc/auto-sync.json`）。手改过的技能不会被覆盖；结果看 `ow status`。设计见 [AUTO_CHECK_2026-11-17.md](design/AUTO_CHECK_2026-11-17.md)。
 
 ## 配置
 
@@ -111,3 +109,4 @@ design/                # 原理与设计文档（见下）
 | [STORE_PLAN.md](design/STORE_PLAN.md) | 知识卡片准入三问与数据模型 |
 | [EXTRACTION_PRINCIPLES.md](design/EXTRACTION_PRINCIPLES.md) | 抽取原则（历史三轴设计保留于此） |
 | [INTEGRATE_GUIDE.md](design/INTEGRATE_GUIDE.md) | agent 整合提案写法 |
+| [AUTO_CHECK_2026-11-17.md](design/AUTO_CHECK_2026-11-17.md) | 每日首次访问自动检查（替代固定定时器） |

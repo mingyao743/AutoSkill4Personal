@@ -13,8 +13,11 @@
  * 这样至少能回答「这个会话值不值得编译」，不会白等。
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveStandaloneConfig, activeConfigDescription } from "../base/llm.ts";
+import { hostContext, setHostContext } from "../base/context.ts";
+import { isPiSessionFile, readPiSession } from "./pi-session.ts";
 import { indexTurns, remainingTurns, takeWindow, windowEndTurn, windowEndSeq } from "./turns.ts";
 import { buildWindowPayload, type WindowPayload } from "./window.ts";
 import { evaluateSignal, type SignalResult } from "./signal.ts";
@@ -45,6 +48,8 @@ export interface CaptureOptions {
    * 而手动触发已经花了用户一次表达成本，再拒绝就是违背直觉。
    */
   manual?: boolean;
+  /** 宿主；不传时按文件路径自动识别（pi 会话 vs dsh 会话） */
+  agent?: "dsh" | "pi";
 }
 
 export type CaptureOutcome =
@@ -112,14 +117,67 @@ function messageIdOf(e: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-/** 切出待编译窗口（不烧 token） */
-export function planWindows(opts: CaptureOptions): PlannedWindow[] {
+interface LoadedSession {
+  agent: "dsh" | "pi";
+  sessionId: string;
+  cwd: string;
+  events: Array<Record<string, unknown>>;
+  entries: Array<MessageEntry & { seq: number }>;
+  subagent: boolean;
+}
+
+/** 按路径/显式 agent 选择 dsh 或 pi 的读取器 */
+function loadSession(opts: CaptureOptions): LoadedSession {
+  const agent = opts.agent ?? (isPiSessionFile(opts.sessionFile) ? "pi" : "dsh");
+  if (agent === "pi") {
+    const s = readPiSession(opts.sessionFile);
+    return {
+      agent: "pi",
+      sessionId: s.header.id,
+      cwd: s.header.cwd ?? process.cwd(),
+      events: s.events,
+      entries: s.entries,
+      subagent: false,
+    };
+  }
   const lines = readSessionLines(opts.sessionFile);
   const events = readSessionEvents(opts.sessionFile);
-  const sessionId = readSessionHeader(opts.sessionFile)?.id ?? sessionIdFromPath(opts.sessionFile);
-  const index = indexTurns(events, sessionId, "dsh");
-  const state = getSessionState(opts.vaultDir, sessionKey("dsh", sessionId));
-  const entries = entriesWithSeq(lines, events);
+  const header = readSessionHeader(opts.sessionFile);
+  return {
+    agent: "dsh",
+    sessionId: header?.id ?? sessionIdFromPath(opts.sessionFile),
+    cwd: header?.cwd ?? process.cwd(),
+    events,
+    entries: entriesWithSeq(lines, events),
+    subagent: isSubagentSession(opts.sessionFile),
+  };
+}
+
+/** pi 的 CLI 手动入口需要 models.json；未注入时补一次宿主上下文 */
+export function ensurePiHostContext(): void {
+  if (hostContext()?.homeDir) return;
+  if (hostContext()) return; // 已注入 cli 等其他形态，不覆盖
+  const agentDir = join(homedir(), ".pi", "agent");
+  try {
+    setHostContext({
+      host: "pi",
+      dataDir: join(agentDir, "data", "autoskill", "knowledge"),
+      homeDir: agentDir,
+      modelsPath: join(agentDir, "models.json"),
+      settingsPath: join(agentDir, "settings.json"),
+    });
+  } catch {
+    /* 冲突注入不阻塞 */
+  }
+}
+
+/** 切出待编译窗口（不烧 token） */
+export function planWindows(opts: CaptureOptions): PlannedWindow[] {
+  const loaded = loadSession(opts);
+  if (loaded.subagent) return [];
+  const { agent, sessionId, cwd, events, entries } = loaded;
+  const index = indexTurns(events, sessionId, agent);
+  const state = getSessionState(opts.vaultDir, sessionKey(agent, sessionId));
   const turnsPer = opts.turns ?? 30;
   const maxWindows = opts.maxWindows ?? DEFAULT_MAX_WINDOWS;
 
@@ -129,9 +187,9 @@ export function planWindows(opts: CaptureOptions): PlannedWindow[] {
     const win = takeWindow(index, from, turnsPer);
     if (win.length === 0) break;
     const payload = buildWindowPayload({
-      agent: "dsh",
+      agent,
       sessionId,
-      cwd: readSessionHeader(opts.sessionFile)?.cwd ?? process.cwd(),
+      cwd,
       entries,
       turns: win,
     });
@@ -154,17 +212,13 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
   if (!existsSync(opts.sessionFile)) {
     return { status: "error", error: `会话文件不存在：${opts.sessionFile}` };
   }
-  if (isSubagentSession(opts.sessionFile)) return { status: "subagent" };
-
-  const lines = readSessionLines(opts.sessionFile);
-  const events = readSessionEvents(opts.sessionFile);
+  const loaded = loadSession(opts);
+  if (loaded.subagent) return { status: "subagent" };
+  const { agent, sessionId, cwd, events, entries } = loaded;
   if (events.length === 0) return { status: "empty" };
 
-  const header = readSessionHeader(opts.sessionFile);
-  const sessionId = header?.id ?? sessionIdFromPath(opts.sessionFile);
-  const cwd = header?.cwd ?? process.cwd();
-  const key = sessionKey("dsh", sessionId);
-  const index = indexTurns(events, sessionId, "dsh");
+  const key = sessionKey(agent, sessionId);
+  const index = indexTurns(events, sessionId, agent);
   const state = getSessionState(opts.vaultDir, key);
   const pending = remainingTurns(index, state.compiled_to_turn);
   if (pending === 0) return { status: "nothing-pending", pending: 0 };
@@ -185,8 +239,12 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
   }
 
   // 能不能真编译：CLI 独立进程需要 standalone 凭据
+  if (agent === "pi") ensurePiHostContext();
   const { config, reason } = resolveStandaloneConfig();
   if (!config) {
+    // pi 侧没有消费 queue 的 drain（自动走 extension），排队只会永远躺着；
+    // 明确告诉用户回 pi 会话里手动/自动沉淀。
+    if (agent === "pi") return { status: "no-llm", reason: reason ?? "pi CLI 无独立凭据", queued: [] };
     const queued = queueForHost(opts.vaultDir, {
       sessionFile: opts.sessionFile,
       sessionId,
@@ -198,7 +256,6 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
   }
 
   // 有凭据：真编译
-  const entries = entriesWithSeq(lines, events);
   const reports: CompileReport[] = [];
   let model = "";
   let compiledTo = state.compiled_to_turn;
@@ -207,7 +264,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
     for (const plan of keep) {
       const win = index.turns.filter((t) => t.index > compiledTo && t.index <= plan.to_turn);
       if (win.length === 0) break;
-      const payload = buildWindowPayload({ agent: "dsh", sessionId, cwd, entries, turns: win });
+      const payload = buildWindowPayload({ agent, sessionId, cwd, entries, turns: win });
       const prompt = buildCompilePrompt({ vaultDir: opts.vaultDir, window: payload, skillDir: opts.skillDir });
       const result = await runCompile({ prompt });
       model = result.model;
@@ -227,7 +284,7 @@ export async function runCapture(opts: CaptureOptions): Promise<CaptureOutcome> 
     }
     rebuildIndex(opts.vaultDir);
     rebuildHot(opts.vaultDir);
-    appendLog(opts.vaultDir, `手动编译 ${sessionId}：${reports.length} 个窗口，模型 ${model}`);
+    appendLog(opts.vaultDir, `手动编译 ${agent}/${sessionId}：${reports.length} 个窗口，模型 ${model}`);
     return { status: "compiled", reports, model };
   } catch (e) {
     return { status: "error", error: String(e) };
@@ -386,7 +443,8 @@ export async function drainPendingCapture(
       last === "skip" ||
       last === "none" ||
       last === "self-trigger" ||
-      last === "subagent-skip";
+      last === "subagent-skip" ||
+      last === "already-compiled";
     if (!terminal) {
       survivors.push(item);
     }

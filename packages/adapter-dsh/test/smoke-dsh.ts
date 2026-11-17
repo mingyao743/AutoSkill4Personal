@@ -20,8 +20,11 @@ import {
   sessionCwdSlug,
   sessionIdFromFile,
   latestSessionFileIn,
+  latestSessionFileAnywhere,
+  allSessionFilesIn,
 } from "../src/session-path.ts";
 import { installDshLlm, rememberedTarget, rememberLlmTarget } from "../src/llm-bridge.ts";
+import { modelFromSessionEvents } from "../src/tools.ts";
 import { clearChatCompleter, chatComplete } from "../../core/lib/base/llm.ts";
 
 let pass = 0;
@@ -77,6 +80,22 @@ const root = mkdtempSync(join(tmpdir(), "autoskill-dsh-"));
   writeFileSync(join(projDir, "session.v4.jsonl"), "{}\n");
   const got = latestSessionFileIn(root, "/Users/me/proj");
   ok(got?.endsWith("session.v4.jsonl") === true, "目录 → 找到会话文件", String(got));
+
+  eq(
+    modelFromSessionEvents([{ type: "request/header", data: { header: { config: { provider: "p", model: "m" } } } }]),
+    "p/m",
+    "从 request/header 读模型",
+  );
+  eq(modelFromSessionEvents([{ type: "session" }]), undefined, "无 header → undefined");
+
+  // 换 workspace：旧实现用 process.cwd() 对应的 slug 会找不到；全机扫描要能找到最新
+  const otherDir = join(root, "sessions", sessionCwdSlug("/Users/me/other"), "session-other");
+  mkdirSync(otherDir, { recursive: true });
+  writeFileSync(join(otherDir, "session.v4.jsonl"), "{}\n");
+  const all = allSessionFilesIn(root);
+  ok(all.length >= 2, "全机扫描找到多个会话", String(all.length));
+  const latest = latestSessionFileAnywhere(root);
+  ok(latest?.includes("session-other") === true, "取全机最新会话", String(latest));
 }
 
 // ── 3. ctx.llm 桥 ─────────────────────────────────────────────
@@ -86,7 +105,8 @@ const root = mkdtempSync(join(tmpdir(), "autoskill-dsh-"));
   /** 造一个形状合法的 dsh llm 服务：只实现桥真正用到的 stream / listProviders */
   function fakeLlm(reply: { text?: string; reasoning?: string; fail?: string }) {
     return {
-      listProviders: () => [{ provider: "testprov" }],
+      listProviders: () => [{ id: "testprov", name: "Test Provider" }],
+      listModels: async (provider: string) => [{ provider, id: "m1", name: "M1" }],
       async *stream(req: Record<string, unknown>) {
         requests.push(req);
         if (reply.fail) {
@@ -125,6 +145,11 @@ const root = mkdtempSync(join(tmpdir(), "autoskill-dsh-"));
   eq(req.maxTokens, 128, "maxTokens 透传");
   eq(req.messages?.[0]?.role, "system", "system 消息在最前");
   eq(req.messages?.[1]?.content?.[0]?.text, "U", "user 内容在 text 块里");
+
+  // 真实 dsh 的 listProviders 返回 {id,name}；不显式配路由时要能自动选中
+  installDshLlm(fakeCtx(fakeLlm({ text: "自动路由" })), {});
+  const auto = await chatComplete({ system: "S", user: "U", maxTokens: 8 });
+  eq(auto.model, "testprov/m1", "无显式配置时按 listProviders().id 选路由");
 
   // 宿主 finish=error 必须变成 throw，不能静默返回空
   installDshLlm(fakeCtx(fakeLlm({ fail: "宿主模型不可用" })), { provider: "testprov", model: "m1" });

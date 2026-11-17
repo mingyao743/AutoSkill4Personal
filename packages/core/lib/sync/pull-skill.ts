@@ -1,12 +1,13 @@
 /**
  * 技能拉取：平台 → 本地。
  *
- * **两级检查**（方案 §10.10）。为什么要两级，看实测成本：
+ * **两级检查**。自动路径是“每天第一次有用户活动时跑一次全量”
+ * （`sync/auto-check.ts`）；`--light` 保留给手动快速查增减：
  *
  * | 级别 | 频率 | 调用 | 成本 | 能发现 |
  * |---|---|---|---|---|
- * | 轻量 | 每 30 分钟 | `list_available_skills` | 29ms / 2.9KB | 新增、移除/禁用 |
- * | 全量 | 每天 03:00 | 逐个 `get_skill` | 3.7s / 1.27MB | **内容更新** |
+ * | 轻量 | 手动 | `list_available_skills` | 29ms / 2.9KB | 新增、移除/禁用 |
+ * | 全量 | 每日首次访问 | 逐个 `get_skill` | 3.7s / 1.27MB | **内容更新** |
  *
  * 全量不能勤跑：6 个技能 1.27MB，每小时一次就是 30MB/天。轻量查不出内容更新
  * （`list_available_skills` 不返回 version），所以必须每天至少一次全量。
@@ -17,13 +18,18 @@
  *  - 本地有但 sha 不一致（本地改过）→ **不覆盖**，报冲突交人工
  *  - 本地有但不在清单里（不是我们管的）→ 不碰
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import type { QdocMcpClient, SkillFile, SkillSummary } from "../publish/mcp.ts";
 import {
   getRecord, hashSkillFiles, markMissing, recordPull, healPendingEnable,
   readManifest, type SkillRecord,
 } from "./manifest.ts";
+import type { HostName } from "./install.ts";
+
+/** 单技能拉取保护：平台 API 一次返回全部文件，超大技能不硬拉 */
+export const MAX_PULL_FILES = 200;
+export const MAX_PULL_BYTES = 20 * 1024 * 1024;
 
 /** 平台技能文件的路径必须安全：不许绝对路径、不许 .. */
 export function isSafeSkillPath(p: string): boolean {
@@ -110,6 +116,8 @@ export interface PullOptions {
   vaultDir: string;
   /** 本地技能根目录（如 ~/.dsh/skills） */
   skillsRoot: string;
+  /** 宿主；决定机器级清单落哪个文件（不传则兼容旧项目清单） */
+  host?: HostName;
   /** 干跑：只比对不写盘 */
   dryRun?: boolean;
   /** 只处理这些技能名（不传则全部） */
@@ -130,7 +138,7 @@ export interface PullOptions {
  * **不拉内容**，所以查不出「内容更新」。
  */
 export async function checkLight(
-  opts: Pick<PullOptions, "client" | "vaultDir">,
+  opts: Pick<PullOptions, "client" | "vaultDir" | "host">,
 ): Promise<{
   available: SkillSummary[];
   names: Set<string>;
@@ -140,9 +148,9 @@ export async function checkLight(
 }> {
   const available = await opts.client.listAvailableSkills();
   const names = new Set(available.map((s) => s.name));
-  const healed = healPendingEnable(opts.vaultDir, names);
+  const healed = healPendingEnable(opts.vaultDir, names, opts.host);
 
-  const manifest = readManifest(opts.vaultDir);
+  const manifest = readManifest(opts.vaultDir, opts.host);
   const newOnPlatform: string[] = [];
   const missingOnPlatform: string[] = [];
   for (const s of available) {
@@ -152,7 +160,7 @@ export async function checkLight(
   for (const [name, rec] of Object.entries(manifest.skills)) {
     if (rec.origin === "pulled" && !names.has(name)) {
       missingOnPlatform.push(name);
-      markMissing(opts.vaultDir, name, true);
+      markMissing(opts.vaultDir, name, true, opts.host);
     }
   }
   return { available, names, healed, newOnPlatform, missingOnPlatform };
@@ -162,7 +170,7 @@ export async function checkLight(
 export async function pullSkills(opts: PullOptions): Promise<PullResult[]> {
   const available = await opts.client.listAvailableSkills();
   const names = new Set(available.map((s) => s.name));
-  healPendingEnable(opts.vaultDir, names);
+  healPendingEnable(opts.vaultDir, names, opts.host);
 
   const targets = opts.only
     ? available.filter((s) => opts.only!.includes(s.name))
@@ -174,17 +182,17 @@ export async function pullSkills(opts: PullOptions): Promise<PullResult[]> {
   }
 
   // 平台已消失的：只标记，不删本地（删了没法恢复）
-  for (const [name, rec] of Object.entries(readManifest(opts.vaultDir).skills)) {
+  for (const [name, rec] of Object.entries(readManifest(opts.vaultDir, opts.host).skills)) {
     if (rec.origin !== "pulled") continue;
     if (names.has(name)) continue;
-    markMissing(opts.vaultDir, name, true);
+    markMissing(opts.vaultDir, name, true, opts.host);
   }
   return results;
 }
 
 async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullResult> {
   const target = join(opts.skillsRoot, summary.name);
-  const rec = getRecord(opts.vaultDir, summary.name);
+  const rec = getRecord(opts.vaultDir, summary.name, opts.host);
 
   let detail: Record<string, unknown>;
   try {
@@ -200,6 +208,16 @@ async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullRe
       action: "failed",
       skillId: summary.id,
       message: "平台返回里没有可用文件（或全被路径安全过滤掉）",
+    };
+  }
+  const totalBytes = files.reduce((n, f) => n + Buffer.byteLength(f.content, "utf8"), 0);
+  if (files.length > MAX_PULL_FILES || totalBytes > MAX_PULL_BYTES) {
+    return {
+      name: summary.name,
+      action: "failed",
+      skillId: summary.id,
+      files: files.length,
+      message: `技能过大（${files.length} 文件 / ${(totalBytes / 1024 / 1024).toFixed(1)}MB），超过拉取上限，已跳过`,
     };
   }
   const remoteSha = hashSkillFiles(files);
@@ -221,7 +239,7 @@ async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullRe
     }
     recordPull(opts.vaultDir, summary.name, {
       skill_id: summary.id, version: remoteVersion, sha: remoteSha, target,
-    });
+    }, opts.host);
     return {
       name: summary.name, action: "created", skillId: summary.id,
       toVersion: remoteVersion, files: files.length,
@@ -239,7 +257,7 @@ async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullRe
       if (!opts.dryRun) {
         recordPull(opts.vaultDir, summary.name, {
           skill_id: summary.id, version: remoteVersion, sha: remoteSha, target,
-        });
+        }, opts.host);
       }
       return {
         name: summary.name, action: "adopted", skillId: summary.id,
@@ -252,7 +270,7 @@ async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullRe
       if (!opts.dryRun) {
         recordPull(opts.vaultDir, summary.name, {
           skill_id: summary.id, version: remoteVersion, sha: localSha, target,
-        });
+        }, opts.host);
       }
       return {
         name: summary.name, action: "adopted", skillId: summary.id,
@@ -316,20 +334,56 @@ async function pullOne(opts: PullOptions, summary: SkillSummary): Promise<PullRe
   }
   recordPull(opts.vaultDir, summary.name, {
     skill_id: summary.id, version: remoteVersion, sha: remoteSha, target,
-  });
+  }, opts.host);
   return {
     name: summary.name, action: "updated", skillId: summary.id,
     fromVersion: rec.version, toVersion: remoteVersion, files: files.length,
   };
 }
 
-/** 写技能目录（路径已过安全检查） */
+/**
+ * 写技能目录（路径已过安全检查）。
+ *
+ * **原子替换**：先在同一父目录写临时目录，再 rename。原因：
+ *  - agent 可能正在读 SKILL.md，原地覆盖会读到半个文件；
+ *  - 平台新版本删掉的文件不会被清掉，导致下次哈希对不上（误报 diverged/conflict）。
+ *
+ * 失败时保留旧目录：先把旧目录 rename 成 backup，成功后删 backup；
+ * 任一步失败就回滚。
+ */
 export function writeSkillDir(target: string, files: SkillFile[]): void {
   for (const f of files) {
     if (!isSafeSkillPath(f.path)) throw new Error(`不安全路径：${f.path}`);
-    const abs = join(target, f.path);
-    mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, f.content, "utf8");
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const tmp = `${target}.tmp-${token}`;
+  const backup = `${target}.bak-${token}`;
+  rmSync(tmp, { recursive: true, force: true });
+  try {
+    for (const f of files) {
+      const abs = join(tmp, f.path);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, f.content, "utf8");
+    }
+    let moved = false;
+    try {
+      if (existsSync(target)) {
+        renameSync(target, backup);
+        moved = true;
+      }
+      renameSync(tmp, target);
+    } catch (e) {
+      if (moved) {
+        try { renameSync(backup, target); } catch { /* 尽力恢复 */ }
+      }
+      rmSync(tmp, { recursive: true, force: true });
+      throw e;
+    }
+    if (moved) rmSync(backup, { recursive: true, force: true });
+  } catch (e) {
+    rmSync(tmp, { recursive: true, force: true });
+    throw e;
   }
 }
 

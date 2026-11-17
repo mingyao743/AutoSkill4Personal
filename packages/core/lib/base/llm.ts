@@ -238,19 +238,42 @@ async function chatViaRegistry(opts: ChatOptions): Promise<ChatResult> {
   };
 
   // pi-ai 内建重试/退避（StreamOptions.maxRetryDelayMs），外层不叠加重试
-  const eventStream = registry.streamSimple(modelObj, context, { signal: opts.signal });
+  const eventStream = registry.streamSimple(modelObj, context, {
+    signal: opts.signal,
+    // registry 路径原来完全忽略 maxTokens：编译 JSON 被截断也会当完整结果返回
+    maxTokens: opts.maxTokens,
+  });
   let text = "";
   let reasoning = "";
-  for await (const ev of eventStream as AsyncIterable<{ type: string; delta?: string; error?: { errorMessage?: string } }>) {
+  let usage: ChatUsage | undefined;
+  let finishReason: string | undefined;
+  for await (const ev of eventStream as AsyncIterable<{
+    type: string; delta?: string; error?: { errorMessage?: string };
+    message?: { usage?: Record<string, number>; stopReason?: string };
+  }>) {
     if (opts.signal?.aborted) break;
     if (ev.type === "text_delta") text += ev.delta ?? "";
     else if (ev.type === "thinking_delta") reasoning += ev.delta ?? "";
     else if (ev.type === "error") throw new Error(ev.error?.errorMessage ?? "LLM 流错误");
+    else if (ev.type === "done" || ev.type === "message_end") {
+      const u = ev.message?.usage;
+      if (u) {
+        usage = {
+          promptTokens: u.input ?? u.promptTokens ?? 0,
+          completionTokens: u.output ?? u.completionTokens ?? 0,
+          totalTokens: u.totalTokens ?? (u.input ?? 0) + (u.output ?? 0),
+        };
+      }
+      finishReason = ev.message?.stopReason ?? finishReason;
+    }
   }
   // 兼容 deepseek 风格：正文为空时从 reasoning 中抢救 JSON
   const out = text.trim() || extractJsonFromText(reasoning) || "";
   if (!out) throw new Error("LLM 返回空 content");
-  return { text: out, model: `${found.provider}/${found.id}` };
+  if (finishReason === "length" || finishReason === "max_tokens") {
+    throw new Error(`LLM 输出被截断（finish_reason=${finishReason}）。调大 maxTokens 或缩小单窗内容。`);
+  }
+  return { text: out, model: `${found.provider}/${found.id}`, usage };
 }
 
 // ---------------- 主入口 ----------------

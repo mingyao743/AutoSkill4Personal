@@ -74,3 +74,50 @@ export function latestSessionFileIn(configured?: string, cwd = process.cwd()): s
     return undefined;
   }
 }
+
+
+/** 全机会话文件（跨所有 cwd slug）。技能自动检查/编译不再依赖进程 cwd。 */
+export interface SessionFileInfo {
+  file: string;
+  mtimeMs: number;
+}
+
+export function allSessionFilesIn(configured?: string): SessionFileInfo[] {
+  const root = dshSessionsRoot(configured);
+  const out: SessionFileInfo[] = [];
+  let slugs: string[];
+  try {
+    slugs = readdirSync(root);
+  } catch {
+    return out;
+  }
+  for (const slug of slugs) {
+    const dir = join(root, slug);
+    let entries: string[];
+    try {
+      if (!statSync(dir).isDirectory()) continue;
+      entries = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const id of entries) {
+      const sessionDir = join(dir, id);
+      for (const f of SESSION_FILES) {
+        const p = join(sessionDir, f);
+        try {
+          const st = statSync(p);
+          if (!st.isFile()) continue;
+          out.push({ file: p, mtimeMs: st.mtimeMs });
+        } catch {
+          /* 没这个文件 */
+        }
+      }
+    }
+  }
+  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/** 全机最新会话：换 workspace / GUI 进程 cwd 不对时也能找到。 */
+export function latestSessionFileAnywhere(configured?: string): string | undefined {
+  return allSessionFilesIn(configured)[0]?.file;
+}

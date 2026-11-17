@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { readManifest, manifestStats, stalePendingEnable, type SkillRecord } from "./manifest.ts";
+import { readAllManifests, manifestStatsAll, stalePendingEnableAll, type SkillRecord } from "./manifest.ts";
 import { readLedger, ledgerStats } from "../publish/ledger.ts";
 import { scanPages } from "../vault/index.ts";
 import { readState } from "../trigger/state.ts";
@@ -89,7 +89,12 @@ export function collectStatus(vaultDir: string): SyncStatus {
   let budget: SyncStatus["budget"] = null;
   try {
     const m = readMachineState();
-    budget = { compiles: m.compiles ?? 0, tokens: m.tokens ?? 0, date: m.date ?? "" };
+    const b = m.budget;
+    budget = {
+      compiles: b.compiles,
+      tokens: b.input_tokens + b.output_tokens,
+      date: b.date,
+    };
   } catch {
     /* 没有机器状态就当没有 */
   }
@@ -99,8 +104,8 @@ export function collectStatus(vaultDir: string): SyncStatus {
     pendingPublish,
     published,
     failures: lStats.failed ?? 0,
-    skills: manifestStats(vaultDir),
-    stalePendingEnable: stalePendingEnable(vaultDir),
+    skills: manifestStatsAll(vaultDir),
+    stalePendingEnable: stalePendingEnableAll(vaultDir),
     conflicts: safeConflicts(vaultDir),
     pendingReview: countPendingReview(vaultDir),
     pendingSummary: pendingSummary(vaultDir),
@@ -119,5 +124,5 @@ function safeConflicts(vaultDir: string): number {
 
 /** 技能清单里所有记录（`ow status --skills` 用） */
 export function skillRecords(vaultDir: string): Array<[string, SkillRecord]> {
-  return Object.entries(readManifest(vaultDir).skills);
+  return Object.entries(readAllManifests(vaultDir).skills);
 }

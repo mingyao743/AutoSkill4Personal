@@ -6,6 +6,7 @@ import { ledgerStats } from "../../../core/lib/publish/ledger.ts";
 import { listConflicts } from "../../../core/lib/publish/conflict.ts";
 import { readLastReport } from "../../../core/lib/compiler/report.ts";
 import { collectStatus, skillRecords } from "../../../core/lib/sync/status.ts";
+import { readAutoSyncState, localTime } from "../../../core/lib/sync/auto-check.ts";
 import { resolveToken } from "../../../core/lib/publish/mcp.ts";
 import { needVault, out } from "../vault-ctx.ts";
 import type { ParsedArgs } from "../args.ts";
@@ -23,6 +24,7 @@ export async function runStatus(args: ParsedArgs): Promise<number> {
   const machineLock = inspectLock("machine");
   const sync = collectStatus(v.dir);
   const skills = skillRecords(v.dir);
+  const autoSync = readAutoSyncState();
 
   const sessions = Object.entries(state.sessions)
     .sort((a, b) => (b[1].last_run ?? "").localeCompare(a[1].last_run ?? ""))
@@ -49,6 +51,17 @@ export async function runStatus(args: ParsedArgs): Promise<number> {
     "锁：",
     `  vault：${vaultLock ? `持有中 pid=${vaultLock.pid} agent=${vaultLock.agent}` : "空闲"}`,
     `  机器：${machineLock ? `持有中 pid=${machineLock.pid} agent=${machineLock.agent}` : "空闲"}`,
+    "",
+    "技能检查（每日首次访问）：",
+    ...(["dsh", "pi"] as const).map((h) => {
+      const r = autoSync.hosts[h]?.lastResult;
+      if (!r) return `  ${h}：未检查`;
+      const p = r.platform;
+      const repo = r.repo.reinstalled.length + r.repo.installed.length;
+      const pruned = r.repo.pruned?.length ?? 0;
+      const git = r.repo.git?.behind ? ` / 仓库落后 ${r.repo.git.behind}` : "";
+      return `  ${h}：${localTime(new Date(r.checked_at)).slice(0, 16).replace("T", " ")}  仓库重装 ${repo} / 清理 ${pruned} / 平台新增 ${p.created} / 更新 ${p.updated} / 冲突 ${p.conflicts.length}${git}`;
+    }),
     "",
     "技能：",
     `  清单 ${sync.skills.total} 个（拉取 ${sync.skills.pulled} / 推送 ${sync.skills.pushed} / 本地 ${sync.skills.local}）`,
@@ -81,6 +94,7 @@ export async function runStatus(args: ParsedArgs): Promise<number> {
     locks: { vault: vaultLock, machine: machineLock },
     token: { configured: !!token.token, source: token.source },
     sync,
+    autoSync,
   });
   return 0;
 }

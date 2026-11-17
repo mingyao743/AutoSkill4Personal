@@ -8,7 +8,7 @@ import {
 } from "../lib/sync/pull-skill.ts";
 import {
   readManifest, writeManifest, recordPull, recordPush, healPendingEnable,
-  stalePendingEnable, manifestStats, hashSkillFiles, markMissing,
+  stalePendingEnable, manifestStats, manifestStatsAll, hashSkillFiles, markMissing,
 } from "../lib/sync/manifest.ts";
 import type { QdocMcpClient, SkillSummary } from "../lib/publish/mcp.ts";
 
@@ -173,8 +173,12 @@ section("pullSkills：平台更新 + 本地未改 → 覆盖");
 {
   const root = tmp();
   const vault = tmp();
-  const v1 = fakeClient([{ name: "s1", id: "id1", version: 1, files: [{ path: "SKILL.md", content: "# v1" }] }]);
+  const v1 = fakeClient([{ name: "s1", id: "id1", version: 1, files: [
+    { path: "SKILL.md", content: "# v1" },
+    { path: "old.txt", content: "旧版本才有的文件" },
+  ] }]);
   await pullSkills({ client: v1, vaultDir: vault, skillsRoot: root });
+  ok(existsSync(join(root, "s1", "old.txt")), "v1 有 old.txt");
 
   const v2 = fakeClient([{ name: "s1", id: "id1", version: 2, files: [{ path: "SKILL.md", content: "# v2" }] }]);
   const r = await pullSkills({ client: v2, vaultDir: vault, skillsRoot: root });
@@ -182,6 +186,7 @@ section("pullSkills：平台更新 + 本地未改 → 覆盖");
   eq(r[0].fromVersion, 1, "从 v1");
   eq(r[0].toVersion, 2, "到 v2");
   ok(readFileSync(join(root, "s1", "SKILL.md"), "utf8").includes("# v2"), "内容已更新");
+  ok(!existsSync(join(root, "s1", "old.txt")), "旧版本多余文件已清理");
   rmSync(root, { recursive: true, force: true });
   rmSync(vault, { recursive: true, force: true });
 }
@@ -330,6 +335,58 @@ section("本地改过但平台没变 → diverged，不报 unchanged");
   ok(readFileSync(join(root, "s1", "SKILL.md"), "utf8").includes("我改了"), "本地内容未动");
   rmSync(root, { recursive: true, force: true });
   rmSync(vault, { recursive: true, force: true });
+}
+
+section("机器级清单：dsh/pi 分文件，不再互相覆盖 target");
+{
+  const root = tmp();
+  const vault = tmp();
+  const machine = tmp();
+  const old = process.env.QDOC_MACHINE_DIR;
+  process.env.QDOC_MACHINE_DIR = machine;
+  try {
+    const client = fakeClient([
+      { name: "s1", id: "id1", version: 1, files: [{ path: "SKILL.md", content: "# s1" }] },
+    ]);
+    const dshRoot = join(root, "dsh");
+    const piRoot = join(root, "pi");
+    await pullSkills({ client, vaultDir: vault, skillsRoot: dshRoot, host: "dsh" });
+    await pullSkills({ client, vaultDir: vault, skillsRoot: piRoot, host: "pi" });
+
+    eq(readManifest(vault, "dsh").skills.s1.target, join(dshRoot, "s1"), "dsh 记录自己的 target");
+    eq(readManifest(vault, "pi").skills.s1.target, join(piRoot, "s1"), "pi 记录自己的 target");
+    ok(existsSync(join(machine, "skill-manifests", "dsh.json")), "dsh 清单落到机器级");
+    ok(existsSync(join(machine, "skill-manifests", "pi.json")), "pi 清单落到机器级");
+    eq(manifestStatsAll(vault).total, 1, "聚合统计同名技能只算一次");
+    ok(!existsSync(join(vault, ".ow", "skill-manifest.json")), "新路径不再写项目级清单");
+  } finally {
+    if (old === undefined) delete process.env.QDOC_MACHINE_DIR;
+    else process.env.QDOC_MACHINE_DIR = old;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(machine, { recursive: true, force: true });
+  }
+}
+
+section("旧项目清单按 target 拆宿主，不串到 pi");
+{
+  const vault = tmp();
+  const machine = tmp();
+  const old = process.env.QDOC_MACHINE_DIR;
+  process.env.QDOC_MACHINE_DIR = machine;
+  try {
+    const home = process.env.HOME ?? "/Users/me";
+    recordPull(vault, "legacy-dsh", { skill_id: "i1", version: 1, sha: "h1", target: join(home, ".dsh", "skills", "legacy-dsh") });
+    recordPull(vault, "legacy-pi", { skill_id: "i2", version: 1, sha: "h2", target: join(home, ".pi", "agent", "skills", "legacy-pi") });
+    eq(Object.keys(readManifest(vault, "dsh").skills), ["legacy-dsh"], "dsh 只看到自己的旧记录");
+    eq(Object.keys(readManifest(vault, "pi").skills), ["legacy-pi"], "pi 只看到自己的旧记录");
+    eq(manifestStatsAll(vault).total, 2, "聚合两条");
+  } finally {
+    if (old === undefined) delete process.env.QDOC_MACHINE_DIR;
+    else process.env.QDOC_MACHINE_DIR = old;
+    rmSync(vault, { recursive: true, force: true });
+    rmSync(machine, { recursive: true, force: true });
+  }
 }
 
 process.exit(summary());

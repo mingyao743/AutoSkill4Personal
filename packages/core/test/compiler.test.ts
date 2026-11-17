@@ -1,6 +1,10 @@
 /** 编译产物解析：模型写坏 JSON 的容错 */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ok, eq, section, summary } from "./_harness.ts";
 import { parseCompileOutput, repairJson } from "../lib/compiler/run.ts";
+import { readReportByHash } from "../lib/compiler/report.ts";
 
 const page = (body: string): string =>
   `{"pages":[{"path":"concepts/a.md","title":"标题","summary":"摘要","tags":["x"],"body":${JSON.stringify(body)}}],"skipped":[]}`;
@@ -84,6 +88,20 @@ section("skipped 透传");
   eq(r.pages.length, 0, "无页面");
   eq(r.skipped.length, 1, "一条 skipped");
   eq(r.skipped[0].reason, "chatter", "原因");
+}
+
+section("幂等：按 window_hash 找回报告");
+{
+  const root = mkdtempSync(join(tmpdir(), "qdoc-report-"));
+  const dir = join(root, ".ow", "reports");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "abcdef123456.json"), JSON.stringify({ window_hash: "sha256:abcdef1234567890", pages_created: 1 }), "utf8");
+  const hit = readReportByHash(root, "sha256:abcdef1234567890");
+  eq(hit?.pages_created, 1, "命中历史报告");
+  eq(readReportByHash(root, "sha256:nope"), null, "没命中返回 null");
+  writeFileSync(join(dir, "badbadbadbad.json"), "{oops", "utf8");
+  eq(readReportByHash(root, "sha256:badbadbadbad"), null, "损坏报告返回 null");
+  rmSync(root, { recursive: true, force: true });
 }
 
 process.exit(summary());

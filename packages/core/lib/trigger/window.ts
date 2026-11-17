@@ -69,7 +69,9 @@ export function buildWindowPayload(opts: BuildWindowOptions): WindowPayload {
   const inRange = entries.filter((e) => e.seq >= fromSeq && e.seq <= toSeq);
 
   const all = inRange.map(toWindowMessage).filter((m): m is WindowMessage => m !== null);
-  const trimmed = applyBudget(all, maxChars);
+  // 先按优先级选材，再把选中的内容压进硬预算。
+  // 旧实现只做第一步：用户消息全保，实测 30 轮窗口能到 245k 字符（上限 120k）。
+  const trimmed = fitBudget(applyBudget(all, maxChars), maxChars);
 
   const payload: WindowPayload = {
     schema: 1,
@@ -177,6 +179,46 @@ function applyBudget(msgs: WindowMessage[], maxChars: number): WindowMessage[] {
   }
 
   return msgs.filter((m) => keep.has(m.seq));
+}
+
+/** 每条消息至少保留这么多字符，避免比例裁剪把短结论削没 */
+const MIN_KEEP_CHARS = 300;
+
+/**
+ * 硬预算：保证所有消息文本总长 ≤ maxChars。
+ *
+ * 为什么不能只靠 applyBudget：它优先保用户消息，用户消息本身就可能超过上限。
+ * 这里对每条消息做**比例裁剪**（至少留 MIN_KEEP_CHARS），并记录原长度。
+ * 消息太多、连最小保留都放不下时，退化为平均分配。
+ */
+export function fitBudget(msgs: WindowMessage[], maxChars: number): WindowMessage[] {
+  const total = msgs.reduce((n, m) => n + m.text.length, 0);
+  if (total <= maxChars) return msgs;
+
+  const fixed = MIN_KEEP_CHARS * msgs.length;
+  if (fixed >= maxChars) {
+    const per = Math.max(50, Math.floor(maxChars / Math.max(1, msgs.length)) - 1);
+    return msgs.map((m) => m.text.length <= per ? m : {
+      ...m, text: m.text.slice(0, per), truncated: m.text.length,
+    });
+  }
+
+  const extraBudget = maxChars - fixed;
+  const extraTotal = total - fixed;
+  const ratio = extraTotal <= 0 ? 0 : extraBudget / extraTotal;
+  let used = 0;
+  return msgs.map((m, i) => {
+    const keep = Math.max(
+      MIN_KEEP_CHARS,
+      MIN_KEEP_CHARS + Math.floor((m.text.length - MIN_KEEP_CHARS) * ratio),
+    );
+    // 最后一条把剩余预算兜住，避免 floor 误差累计超限
+    const room = maxChars - used;
+    const limit = i === msgs.length - 1 ? Math.max(0, room) : Math.min(keep, Math.max(0, room));
+    used += Math.min(m.text.length, Math.max(0, limit));
+    if (m.text.length <= limit) return m;
+    return { ...m, text: m.text.slice(0, Math.max(0, limit)), truncated: m.text.length };
+  });
 }
 
 /** 稳定哈希：只取影响编译结果的字段（时间戳不进哈希，否则同一窗口两次哈希不同） */

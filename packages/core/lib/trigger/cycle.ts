@@ -13,7 +13,7 @@
 import { logError } from "../base/atom-store.ts";
 import { buildCompilePrompt } from "../compiler/prompt.ts";
 import { runCompile } from "../compiler/run.ts";
-import { writeCompileResult, type CompileReport } from "../compiler/report.ts";
+import { readReportByHash, writeCompileResult, type CompileReport } from "../compiler/report.ts";
 import { rebuildHot, rebuildIndex, appendLog } from "../vault/index.ts";
 import { resolveVault, type VaultInfo } from "../vault/init.ts";
 import { buildWindowPayload, type WindowPayload } from "./window.ts";
@@ -41,8 +41,10 @@ export type CycleOutcome =
   | { status: "machine-busy" }
   | { status: "vault-busy" }
   | { status: "budget-exhausted"; reason: string }
+  | { status: "not-idle" }
   | { status: "no-signal"; signal: SignalResult }
   | { status: "compiled"; report: CompileReport; window: WindowPayload }
+  | { status: "already-compiled"; report: CompileReport; window: WindowPayload }
   | { status: "error"; error: string };
 
 export interface CycleInput {
@@ -60,6 +62,8 @@ export interface CycleInput {
   turns?: number;
   /** 允许初始化 vault */
   autoInit?: boolean;
+  /** 编译使用的模型（dsh 从会话 request/header 读，pi 不传） */
+  model?: string;
 }
 
 /**
@@ -115,6 +119,10 @@ async function runWindow(
   const signal = evaluateSignal(payload);
   if (!signal.keep) return { status: "no-signal", signal };
 
+  // dsh 的 turn/end 是完整轮界，可以安全等到空闲再编；pi 的 before_agent_start
+  // 没有会话结束钩子，若也要求空闲，用户停下后这一窗就永远等不到下一次触发。
+  if (input.agent === "dsh" && !isIdle(index)) return { status: "not-idle" };
+
   const budget = checkBudget();
   if (!budget.allowed) return { status: "budget-exhausted", reason: budget.reason ?? "unknown" };
 
@@ -137,13 +145,25 @@ async function runWindow(
     });
     if (!vaultLock) return { status: "vault-busy" };
 
+    // 幂等：同一 window_hash 已经编译过（可能上次写完页但没推进水位）→ 只推进水位
+    const done = readReportByHash(vault.dir, payload.hash);
+    if (done) {
+      advanceState(vault.dir, key, {
+        compiled_to_turn: windowEndTurn(win),
+        compiled_to_seq: windowEndSeq(win),
+        pages: 0,
+      });
+      appendLog(vault.dir, `幂等跳过 ${payload.agent}/${payload.session_id} 第 ${payload.from_turn}–${payload.to_turn} 轮（已编译过）`);
+      return { status: "already-compiled", report: done, window: payload };
+    }
+
     const prompt = buildCompilePrompt({
       vaultDir: vault.dir,
       window: payload,
       skillDir: input.skillDir,
     });
 
-    const result = await runCompile({ prompt });
+    const result = await runCompile({ prompt, model: input.model });
     const report = writeCompileResult({ vaultDir: vault.dir, window: payload, result });
 
     // 维护索引（持锁期间做，避免和手动入口并发写坏）
@@ -187,6 +207,7 @@ function isInside(cwd: string, dir: string): boolean {
 /** 最后一轮是否已结束够久（文件不再变） */
 function isIdle(index: TurnIndex): boolean {
   const last = index.turns[index.turns.length - 1];
-  if (!last?.endedAt) return false;
+  // 没有 turn/end 时间戳时无法判断空闲：按“可编译”处理，避免永久重试
+  if (!last?.endedAt) return true;
   return Date.now() - Date.parse(last.endedAt) >= IDLE_MS;
 }

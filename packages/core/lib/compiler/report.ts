@@ -83,6 +83,17 @@ export function writeCompileResult(opts: WritePagesOptions): CompileReport {
       skipped.push({ path: page.path, reason: guard.reason, detail: `撞上 ${guard.existingPath}` });
       continue;
     }
+    if (guard.decision === "update" && guard.existingPath && guard.existingPath !== page.path) {
+      // 同源近似标题：旧实现仍然写新页，warning 只是一行字，结果产生重复页。
+      // 在真正实现 merge 之前，先不写第二页，把候选交给人工/dedup。
+      skipped.push({
+        path: page.path,
+        reason: "merge-into-existing",
+        detail: `应合并到 ${guard.existingPath}，当前先跳过新页`,
+      });
+      warnings.push(`${page.path} 判定应合并到 ${guard.existingPath}，已跳过新页（待 merge 实现）`);
+      continue;
+    }
 
     const meta: Frontmatter = {
       title: page.title,
@@ -104,11 +115,6 @@ export function writeCompileResult(opts: WritePagesOptions): CompileReport {
     mkdirSync(dirname(abs), { recursive: true });
     const existed = existsSync(abs);
     writeFileSync(abs, text, "utf8");
-
-    if (guard.decision === "update" && guard.existingPath && guard.existingPath !== page.path) {
-      // 合并到已有页（同源同题）：把新正文追加到已有页，标 deprecated 来源
-      warnings.push(`${page.path} 判定应合并到 ${guard.existingPath}，当前实现为独立写入`);
-    }
 
     if (existed) updated += 1;
     else created += 1;
@@ -149,6 +155,16 @@ export function writeReport(vaultDir: string, report: CompileReport): void {
   const short = report.window_hash.replace(/^sha256:/, "").slice(0, 12);
   writeFileSync(join(dir, `${short}.json`), JSON.stringify(report, null, 2), "utf8");
   writeFileSync(join(vaultDir, ".ow", "compile-report.json"), JSON.stringify(report, null, 2), "utf8");
+}
+
+/** 按 window_hash 读历史报告（幂等：同一窗口重跑不再调 LLM） */
+export function readReportByHash(vaultDir: string, windowHash: string): CompileReport | null {
+  const short = windowHash.replace(/^sha256:/, "").slice(0, 12);
+  try {
+    return JSON.parse(readFileSync(join(vaultDir, ".ow", "reports", `${short}.json`), "utf8")) as CompileReport;
+  } catch {
+    return null;
+  }
 }
 
 /** 读最近一次报告（`ow status` / 调试用） */

@@ -95,6 +95,20 @@ section("预算裁剪：保住用户消息");
   eq(w.messages.filter((m) => m.role === "user").length, 40, "40 条用户消息全保住");
 }
 
+section("硬预算：用户消息本身超过上限也要裁");
+{
+  const entries: Array<ReturnType<typeof entry>> = [];
+  for (let i = 0; i < 20; i++) {
+    entries.push(entry(i + 1, "user", `第 ${i} 段超长输入 ${"x".repeat(20_000)}`));
+  }
+  const turns = Array.from({ length: 20 }, (_, i) => turn(i + 1, i + 1, i + 1));
+  const w = buildWindowPayload({ agent: "dsh", sessionId: "s", cwd: "/", entries, turns, maxChars: MAX_WINDOW_CHARS });
+  const total = w.messages.reduce((n, m) => n + m.text.length, 0);
+  ok(total <= MAX_WINDOW_CHARS, `总长 ${total} ≤ ${MAX_WINDOW_CHARS}`);
+  ok(w.messages.some((m) => m.truncated != null), "超长消息被标记截断");
+  eq(w.messages.length, 20, "消息条数不丢（只裁文本）");
+}
+
 section("渲染成文本");
 {
   const w = buildWindowPayload({

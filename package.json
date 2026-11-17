@@ -26,5 +26,8 @@
     "skills": [
       "agent-skills"
     ]
+  },
+  "bin": {
+    "ow": "./scripts/ow"
   }
 }

@@ -42,6 +42,7 @@ alias ow='node --experimental-strip-types /path/to/repo/packages/cli/src/main.ts
 | `ow link` | 建 `wiki -> .qdoc` 软链 | 否 |
 | `ow maintain` | 重建 index / hot | 否 |
 | `ow promote` | 把够格的知识页升级成技能 | 否 |
+| `ow doctor` | 宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移） | 否 |
 
 常用选项：`--vault <dir>` `--dry-run` `--json` `--help`
 
@@ -53,6 +54,7 @@ CLI 是独立进程，**拿不到 agent 自己的模型凭据**（dsh 存的是�
 ```bash
 ow capture --plan     # 只切窗，看哪些窗口值得编译，不烧 token
 ow capture            # 有独立凭据就编译，没有就排队
+ow capture --session <pi.jsonl> --agent pi --plan   # pi 会话手动入口
 ```
 
 没凭据时会写 `.qdoc/.ow/pending/capture.json`，等宿主会话接手。**推荐在 agent 里

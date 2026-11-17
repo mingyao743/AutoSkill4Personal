@@ -4,28 +4,18 @@
  * 为什么需要：**代码会自动跟着仓库走，技能不会**。
  *   - dsh 插件是软链（`link:…/packages/adapter-dsh`），重启就吃到新代码
  *   - pi 扩展是本地路径，同理
- *   - 但 `agent-skills/` 是**实体拷贝**到 `~/.dsh/skills` 与 `~/.pi/agent/skills`
- *
- * 于是改完仓库忘了重装，宿主跑的还是旧版本——这个坑已经踩过一次
- * （改完 qdoc 技能没重装，宿主读到的仍是旧文本）。
+ *   - 但 `agent-skills/` 是**实体拷贝**到各宿主技能目录
  *
  * 检测方式用**内容哈希**而不是 semver：手改的版本号不可靠，而哈希能精确
- * 反映「装的和源是不是同一份」。整个比对只读小文件，毫秒级、不联网。
+ * 反映「装的和源是不是同一份」。只读小文件，毫秒级、不联网。
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hashDir, hostSkillDir, type HostName } from "./install.ts";
 
-export type HostName = "dsh" | "pi";
-
-/** 各宿主放技能的位置（与 scripts/install-skill.ts 同一口径） */
-export function hostSkillDir(host: HostName): string {
-  return host === "dsh"
-    ? join(homedir(), ".dsh", "skills")
-    : join(homedir(), ".pi", "agent", "skills");
-}
+export { hashDir, hostSkillDir };
+export type { HostName };
 
 /**
  * 仓库根：本文件在 `packages/core/lib/sync/drift.ts`，向上四级。
@@ -43,44 +33,6 @@ export function findRepoRoot(from?: string): string | null {
     dir = up;
   }
   return null;
-}
-
-function walk(dir: string, base = dir): string[] {
-  const out: string[] = [];
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return out;
-  }
-  for (const name of names.sort()) {
-    if (name.startsWith(".")) continue;
-    const abs = join(dir, name);
-    let isDir = false;
-    try {
-      isDir = statSync(abs).isDirectory();
-    } catch {
-      continue;
-    }
-    if (isDir) out.push(...walk(abs, base));
-    else out.push(relative(base, abs));
-  }
-  return out;
-}
-
-/** 目录内容哈希：路径 + 内容，与遍历顺序无关 */
-export function hashDir(dir: string): string | null {
-  if (!existsSync(dir)) return null;
-  const h = createHash("sha256");
-  for (const rel of walk(dir)) {
-    h.update(rel);
-    try {
-      h.update(readFileSync(join(dir, rel)));
-    } catch {
-      return null;
-    }
-  }
-  return h.digest("hex").slice(0, 12);
 }
 
 export interface DriftItem {
@@ -160,6 +112,6 @@ export function describeDrift(r: DriftReport): string | null {
   if (missing.length > 0) parts.push(`未安装：${missing.join("、")}`);
   return (
     `[autoskill] 宿主里的技能与仓库不一致（${names}）——${parts.join("；")}。` +
-    `跑 npm run install-skill 重装。`
+    `自动检查会尝试安全重装；也可跑 npm run install-skill 强制重装。`
   );
 }
