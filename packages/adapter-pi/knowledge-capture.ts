@@ -1,12 +1,11 @@
 /**
  * knowledge-capture extension（P0 在线入口，V2 方案）—— 纯宿主对接层。
  *
- * 抽取/编排逻辑全在 core/lib/capture-orchestration.ts；本文件只做 pi 对接：
+ * 本文件只做 pi 对接：
  *   - setHostContext（pi 路径注入）
  *   - 注册 pi 钩子/命令（session_start / before_agent_start / tool_call / kb_doctor）
  *   - 从 ctx 取 entries/sessionId（宿主形状）
- *   - detached spawn（进程管理）
- *   - 工具响应格式化
+ *   - 统一触发 core/trigger/cycle.ts 的 maybeCompile
  *
  * 统一触发（全 agent 一份逻辑，core 定义）：
  *   + before_agent_start（user 轮）→ core/trigger/cycle.ts 的 maybeCompile
@@ -34,10 +33,7 @@ import { maybeAutoSync } from "../../packages/core/lib/sync/auto-check.ts";
 import { resolveVault } from "../../packages/core/lib/vault/init.ts";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  pendingNoticeText,
-  applyPatches,
-} from "../../packages/core/lib/capture-orchestration.ts";
+import { applyPatches } from "../../packages/core/lib/skill/apply-patches.ts";
 
 // adapter-pi 宿主上下文注入（v2：数据目录/凭据基准/skills 输出全部住在 pi 命名空间内）。
 // extension 进程内首次调用时注入；spawn CLI 各自进程靠 AUTOSKILL_DATA_DIR/AUTOSKILL_HOME 环境传递。
@@ -107,7 +103,6 @@ async function maybeRunCycle(ctx: unknown, reason: string): Promise<void> {
 
 export default function (pi: ExtensionAPI) {
   // ---------- 0a. session_start：注入 ModelRegistry + 消费提案队列 ----------
-  let noticed = false; // 每会话只注入一次提示
   pi.on("session_start", async (_event, ctx) => {
     // 抽取引擎复用用户环境的 API 配置：凭据解析与主对话同链（auth.json/models.json/env）。
     try {
@@ -135,7 +130,7 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // ---------- 0b. before_agent_start：首个用户轮注入提示（pending + darwin 体检） ----------
+  // ---------- 0b. before_agent_start：推进编译 + 每日技能检查 ----------
   pi.on("before_agent_start", async (event, ctx) => {
     // 用户轮开始前推进知识编译（30 轮闸 → 信号门 → 两级锁 → 进程内编译）。
     // 旧的 atoms 抽取管线已随旧 autoskill 架构移除，与 dsh 侧保持一致。
@@ -157,17 +152,6 @@ export default function (pi: ExtensionAPI) {
         });
       }
     }
-    if (noticed || event.messageType !== "user") return;
-    noticed = true;
-    const notice = pendingNoticeText();
-    if (!notice) return;
-    return {
-      message: {
-        customType: "kb_pending_notice",
-        content: notice,
-        display: "[知识管道] 有待整合知识卡片 / skill 体检提示（详见注入内容）",
-      },
-    };
   });
 
   // ---------- 0c. tool_call hook：模型读取 SKILL.md → 记 loaded（usage 审计） ----------
