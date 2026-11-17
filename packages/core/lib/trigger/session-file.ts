@@ -1,9 +1,11 @@
 /**
  * 会话文件读取：zstd 解压 + 事件解析。
  *
- * 内置 `zlib.zstdDecompressSync`（Node 22.15+ 实测可用），**不依赖外部 `zstd` 命令**。
- * 原实现调 `execFileSync("zstd", ...)`，在没装 zstd 的机器上直接失败——而 dsh 默认
- * 就是 zstd 压缩落盘，等于「默认配置下读不到会话」。
+ * 内置 `zlib.zstdDecompressSync`（Node 22.15+）优先，外部 `zstd -dc` 兜底。
+ *
+ * 为什么不能静态 named import：Node 22.14 没有 `zstdDecompressSync`，静态
+ * `import { zstdDecompressSync }` 会让**整个模块加载失败**——连带 `ow status/sync`
+ * 都起不来。改成 `import * as zlib` 运行时判空，22.14 上只有 capture 需要外部 zstd。
  *
  * 同时供三个地方用：
  *  - adapter-dsh 的定时器（原 tools.ts 里的 readSessionLines）
@@ -13,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { zstdDecompressSync } from "node:zlib";
+import * as zlib from "node:zlib";
 
 /** zstd 帧魔数（RFC 8878） */
 const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
@@ -28,7 +30,28 @@ const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
  * 做法：按魔数找候选帧边界，逐段尝试解压；解不动的段说明魔数是压缩数据里的巧合，
  * 与下一段合并再试。
  */
-export function decompressZstdMultiFrame(buf: Buffer): Buffer {
+type ZstdFn = (buf: Buffer) => Buffer;
+
+/** Node 22.15+ 的内置 zstd；没有返回 null（22.14 等） */
+export function builtinZstd(): ZstdFn | null {
+  const fn = (zlib as unknown as { zstdDecompressSync?: ZstdFn }).zstdDecompressSync;
+  return typeof fn === "function" ? fn : null;
+}
+
+/** 内置/外部 zstd 可用性（doctor / 报错用） */
+export function zstdStatus(): { builtin: boolean; external: boolean } {
+  let external = false;
+  try {
+    execFileSync("zstd", ["--version"], { stdio: "ignore" });
+    external = true;
+  } catch {
+    /* 没装 */
+  }
+  return { builtin: builtinZstd() !== null, external };
+}
+
+export function decompressZstdMultiFrame(buf: Buffer, zstd: ZstdFn | null = builtinZstd()): Buffer {
+  if (!zstd) throw new Error("当前 Node 没有内置 zstdDecompressSync（需要 ≥22.15）");
   // 单帧快路径：能一次解完且长度合理就不折腾
   const candidates: number[] = [];
   for (let i = 0; i + 4 <= buf.length; i++) {
@@ -39,13 +62,13 @@ export function decompressZstdMultiFrame(buf: Buffer): Buffer {
       candidates.push(i);
     }
   }
-  if (candidates.length <= 1) return zstdDecompressSync(buf);
+  if (candidates.length <= 1) return zstd(buf);
 
   const parts: Buffer[] = [];
   let start = 0;
   for (const at of candidates) {
     if (at <= start) continue;
-    const piece = tryDecompress(buf.subarray(start, at));
+    const piece = tryDecompress(buf.subarray(start, at), zstd);
     // `piece === null` 说明这段解不动：魔数只是压缩数据里的巧合，与下一段合并再试。
     // 注意**不能用 try/catch 判断**——截断的帧会返回 0 字节而不抛错（实测），
     // 那样会把假边界当真边界，静默吞掉中间那帧。
@@ -54,7 +77,7 @@ export function decompressZstdMultiFrame(buf: Buffer): Buffer {
     start = at;
   }
   if (start < buf.length) {
-    const tail = tryDecompress(buf.subarray(start));
+    const tail = tryDecompress(buf.subarray(start), zstd);
     if (tail) parts.push(tail);
   }
   return Buffer.concat(parts);
@@ -67,10 +90,10 @@ export function decompressZstdMultiFrame(buf: Buffer): Buffer {
  * 只靠 try/catch 会把「被截断的末帧」当成正常解完，读出来少一截还浑然不觉。
  * 返回 null 让调用方合并到下一段重试，末帧则直接丢弃（下次读会补上）。
  */
-function tryDecompress(buf: Buffer): Buffer | null {
+function tryDecompress(buf: Buffer, zstd: ZstdFn): Buffer | null {
   if (buf.length === 0) return null;
   try {
-    const out = zstdDecompressSync(buf);
+    const out = zstd(buf);
     return out.length > 0 ? out : null;
   } catch {
     return null;
@@ -83,17 +106,19 @@ export function readSessionLines(input: string): string[] {
   if (path.endsWith(".zstd")) {
     const buf = readFileSync(path);
     try {
+      if (process.env.OW_FORCE_EXTERNAL_ZSTD === "1") throw new Error("OW_FORCE_EXTERNAL_ZSTD=1");
       return decompressZstdMultiFrame(buf).toString("utf8").split("\n");
     } catch (e) {
-      // 内置解压失败（极老版本 Node / 非标准帧）：退回外部命令，再不行就报错
+      // 内置解压不可用/失败（Node <22.15 或非标准帧）：退回外部命令
       try {
         return execFileSync("zstd", ["-d", "-c", path], { maxBuffer: 512 * 1024 * 1024 })
           .toString("utf8")
           .split("\n");
       } catch {
+        const st = zstdStatus();
         throw new Error(
-          `无法解压 ${path}：内置 zstd 失败（${String(e)}），外部 zstd 命令也不可用。\n` +
-          "请升级 Node 到 22.15+ 或安装 zstd。",
+          `无法解压 ${path}：内置 zstd ${st.builtin ? "失败" : "不可用"}（${String(e)}），外部 zstd ${st.external ? "也失败" : "未安装"}。\n` +
+          "请升级 Node 到 22.15+ 或安装 zstd（例如 brew install zstd / apt install zstd）。",
         );
       }
     }

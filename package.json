@@ -14,7 +14,8 @@
     "test:qdoc": "node --experimental-strip-types packages/core/test/run-all.ts",
     "ow": "node --experimental-strip-types packages/cli/src/main.ts",
     "install-skill": "node --experimental-strip-types scripts/install-skill.ts",
-    "check-skill": "node --experimental-strip-types scripts/install-skill.ts --check"
+    "check-skill": "node --experimental-strip-types scripts/install-skill.ts --check",
+    "setup": "node --experimental-strip-types scripts/setup.ts"
   },
   "keywords": [
     "pi-package"
@@ -29,5 +30,8 @@
   },
   "bin": {
     "ow": "./scripts/ow"
+  },
+  "engines": {
+    "node": ">=22.6"
   }
 }

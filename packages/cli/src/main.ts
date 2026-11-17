@@ -22,7 +22,6 @@ import { runSync } from "./commands/sync.ts";
 import { runMaintain } from "./commands/maintain.ts";
 import { runReviewCmd } from "./commands/review.ts";
 import { runLink } from "./commands/link.ts";
-import { runCaptureCmd } from "./commands/capture.ts";
 import { runPromote } from "./commands/promote.ts";
 import { runTodo } from "./commands/todo.ts";
 import { runDoc } from "./commands/doc.ts";
@@ -75,7 +74,12 @@ async function main(): Promise<number> {
       case "review": return await runReviewCmd(args);
       case "link": return await runLink(args);
       case "maintain": return await runMaintain(args);
-      case "capture": return await runCaptureCmd(args);
+      case "capture": {
+        // Node 22.14 没有内置 zstd；capture 依赖 session-file，按需加载，
+        // 避免 status/sync/doctor 也被 zstd 拖死。
+        const { runCaptureCmd } = await import("./commands/capture.ts");
+        return await runCaptureCmd(args);
+      }
       case "promote": return await runPromote(args);
       case "todo": return await runTodo(args);
       case "doc": return await runDoc(args);

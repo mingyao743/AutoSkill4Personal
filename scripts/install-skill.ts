@@ -13,6 +13,7 @@
  *   node --experimental-strip-types scripts/install-skill.ts --check
  *   node --experimental-strip-types scripts/install-skill.ts --host=dsh
  *   node --experimental-strip-types scripts/install-skill.ts --host=all
+ *   node --experimental-strip-types scripts/install-skill.ts --host=pi --force-launcher
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -32,6 +33,7 @@ function parseHost(arg: string | undefined): HostName[] | null {
 function main(): number {
   const args = process.argv.slice(2);
   const checkOnly = args.includes("--check");
+  const forceLauncher = args.includes("--force-launcher");
   const hostArg = args.find((a) => a.startsWith("--host="))?.split("=")[1]
     ?? (args.includes("--host") ? args[args.indexOf("--host") + 1] : undefined);
   const hosts = parseHost(hostArg);
@@ -64,10 +66,12 @@ function main(): number {
     drifted = results.filter((r) => r.action !== "unchanged").length;
     lines.push(drifted === 0 ? "全部一致。" : `${drifted} 个技能需要重装：跑不带 --check 的版本。`);
   } else {
-    const launcher = installOwLauncher(REPO_ROOT);
+    const launcher = installOwLauncher(REPO_ROOT, { force: forceLauncher });
     lines.push(
       launcher.ok
-        ? `ow 入口：${launcher.path}`
+        ? launcher.preserved
+          ? `ow 入口：保留已有 ${launcher.path}（--force-launcher 可覆盖）`
+          : `ow 入口：${launcher.path}`
         : `⚠ ow 入口创建失败：${launcher.error ?? "未知错误"}（可手动把 scripts/ow 加进 PATH）`,
     );
   }

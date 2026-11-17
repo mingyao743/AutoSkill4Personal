@@ -21,6 +21,7 @@ const HELP = `ow mcp-config —— 生成宿主接入 qdoc MCP 的 JSON（含 to
 
 用法：
   ow mcp-config [--host qoder|codebuddy|workbuddy|raw]
+  （pi 没有内置 MCP，不需要本命令）
 
   JSON 走 stdout，说明走 stderr，可重定向：
     ow mcp-config --host qoder > ~/.qoder-cn/settings.json
@@ -59,8 +60,15 @@ export async function runMcpConfig(args: ParsedArgs): Promise<number> {
     return 0;
   }
   const host = flagString(args, "host") ?? "qoder";
+  if (host === "pi") {
+    process.stderr.write(
+      "pi 没有内置 MCP 客户端（0.84.x 实测），不需要 mcpServers 配置。\n" +
+      "qdoc 通过 adapter-pi 扩展 + ow CLI 接入：npm run install-skill -- --host pi\n",
+    );
+    return 2;
+  }
   if (!["qoder", "codebuddy", "workbuddy", "raw"].includes(host)) {
-    process.stderr.write(`未知宿主：${host}（可选 qoder|codebuddy|workbuddy|raw）\n`);
+    process.stderr.write(`未知宿主：${host}（可选 qoder|codebuddy|workbuddy|raw；pi 无需 MCP）\n`);
     return 2;
   }
   const token = loadToken();

@@ -6,7 +6,7 @@ import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { ok, eq, section, summary } from "./_harness.ts";
 import {
   readSessionLines, readSessionEvents, readSessionHeader, resolveSessionFile,
-  isSubagentSession, sessionIdFromPath,
+  isSubagentSession, sessionIdFromPath, decompressZstdMultiFrame, zstdStatus,
 } from "../lib/trigger/session-file.ts";
 
 const line = (o: Record<string, unknown>): string => JSON.stringify(o);
@@ -91,6 +91,34 @@ section("边写边读：逐帧追加都能读到");
   closeSync(fd);
   eq(counts, [1,2,3,4,5,6,7,8,9,10,11,12], "每追加一帧就多读到一行");
   rmSync(dir, { recursive: true, force: true });
+}
+
+section("Node <22.15 模拟：外部 zstd fallback");
+{
+  const st = zstdStatus();
+  ok(st.builtin, "当前 Node 有内置 zstd（前置）");
+  let threw = false;
+  try { decompressZstdMultiFrame(zstdCompressSync(Buffer.from("{}")), null); } catch { threw = true; }
+  ok(threw, "传 null 时明确抛错，不是静默返回空");
+
+  if (!st.external) {
+    ok(true, "无外部 zstd，跳过 fallback 实测");
+  } else {
+    const dir = mkdtempSync(join(tmpdir(), "qdoc-ext-"));
+    const p = join(dir, "session.v4.jsonl.zstd");
+    writeFileSync(p, zstdCompressSync(Buffer.from('{"type":"session","id":"ext"}\n{"type":"turn/end","seq":2}\n')));
+    const old = process.env.OW_FORCE_EXTERNAL_ZSTD;
+    process.env.OW_FORCE_EXTERNAL_ZSTD = "1";
+    try {
+      const lines = readSessionLines(p).filter(Boolean);
+      eq(lines.length, 2, "强制走外部 zstd 解出两行");
+      ok(lines[0].includes('"ext"'), "外部解压内容正确");
+    } finally {
+      if (old === undefined) delete process.env.OW_FORCE_EXTERNAL_ZSTD;
+      else process.env.OW_FORCE_EXTERNAL_ZSTD = old;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
 }
 
 section("损坏行静默跳过");

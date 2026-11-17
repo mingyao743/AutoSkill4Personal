@@ -1,19 +1,21 @@
 /**
  * `ow doctor`：宿主接入自检。
  *
- * 解决的问题：仓库改名/搬家后，dsh profile 的软链、pi 的 package 路径会悄悄断，
- * 宿主启动不报错，只是安静地少功能。doctor 把这些“运行环境事实”一次查完。
+ * 解决的问题：仓库改名/搬家后，dsh profile 的软链、pi 的 package 路径会悄悄断；
+ * Node 版本/ zstd 不可用会让 ow capture 静默失效。doctor 把这些“运行环境事实”
+ * 一次查完，并支持 `--host pi` 只看目标宿主，避免 pi-only 机器被 dsh 误报。
  *
  * 只读，不修；修法打印在问题下面。
  */
 import { existsSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { checkSkillDrift, describeDrift } from "../../../core/lib/sync/drift.ts";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { checkSkillDrift, describeDrift, findRepoRoot, type HostName } from "../../../core/lib/sync/drift.ts";
+import { zstdStatus } from "../../../core/lib/trigger/session-file.ts";
 import { readAutoSyncState, localTime } from "../../../core/lib/sync/auto-check.ts";
 import { resolveToken } from "../../../core/lib/publish/mcp.ts";
-import { needVault, out } from "../vault-ctx.ts";
-import type { ParsedArgs } from "../args.ts";
+import { out } from "../vault-ctx.ts";
+import { flagString, type ParsedArgs } from "../args.ts";
 
 interface Issue { level: "error" | "warn"; area: string; message: string; fix?: string }
 
@@ -24,7 +26,10 @@ function readJson(path: string): Record<string, unknown> | null {
 function checkDshProfiles(issues: Issue[], lines: string[]): void {
   const root = join(homedir(), ".dsh", "profiles");
   let names: string[];
-  try { names = readdirSync(root); } catch { return; }
+  try { names = readdirSync(root); } catch {
+    lines.push("  未发现 ~/.dsh/profiles（当前机器可能只装了 pi）");
+    return;
+  }
   for (const name of names) {
     const dir = join(root, name);
     const pkg = readJson(join(dir, "package.json"));
@@ -63,27 +68,41 @@ function checkDshProfiles(issues: Issue[], lines: string[]): void {
   }
 }
 
+function expandPiPackage(p: string, settingsDir: string): string {
+  if (p.startsWith("~")) return join(homedir(), p.slice(1));
+  return isAbsolute(p) ? p : resolve(settingsDir, p);
+}
+
 function checkPi(issues: Issue[], lines: string[]): void {
   const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
   const settings = readJson(settingsPath);
   if (!settings) {
-    lines.push("  pi: 未找到 settings.json");
-    return;
-  }
-  const pkgs = (settings.packages ?? []) as string[];
-  const autoskill = pkgs.filter((p) => p.includes("AutoSkill") || p.includes("autoskill"));
-  if (autoskill.length === 0) {
-    lines.push("  pi: 未登记 AutoSkill 包");
+    lines.push("  未找到 ~/.pi/agent/settings.json");
     issues.push({
-      level: "warn", area: "pi", message: "settings.json 的 packages 里没有 AutoSkill",
-      fix: `pi install <本仓库>`,
+      level: "warn", area: "pi", message: "找不到 pi settings.json（pi 未安装或首次未运行）",
+      fix: "先跑一次 pi，再回来 doctor",
     });
     return;
   }
+  const pkgs = (settings.packages ?? []) as string[];
+  const autoskill = pkgs.filter((p) => p.includes("AutoSkill") || p.toLowerCase().includes("autoskill"));
+  if (autoskill.length === 0) {
+    lines.push("  未登记 AutoSkill 包");
+    issues.push({
+      level: "warn", area: "pi", message: "settings.json 的 packages 里没有 AutoSkill",
+      fix: "pi install <本仓库>",
+    });
+    return;
+  }
+  const settingsDir = dirname(settingsPath);
   for (const p of autoskill) {
-    const abs = p.startsWith("/") ? p : join(homedir(), p);
+    if (p.startsWith("npm:") || p.startsWith("git:") || p.startsWith("http")) {
+      lines.push(`  ${p}（非本地路径，跳过存在性检查）`);
+      continue;
+    }
+    const abs = expandPiPackage(p, settingsDir);
     const ok = existsSync(join(abs, "package.json"));
-    lines.push(`  pi: ${p} → ${abs}（${ok ? "ok" : "不存在"}）`);
+    lines.push(`  ${p} → ${abs}（${ok ? "ok" : "不存在"}）`);
     if (!ok) {
       issues.push({
         level: "error", area: "pi",
@@ -94,16 +113,48 @@ function checkPi(issues: Issue[], lines: string[]): void {
   }
 }
 
+function checkRuntime(issues: Issue[], lines: string[]): void {
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  const nodeOk = major > 22 || (major === 22 && minor >= 6);
+  lines.push(`  Node: ${process.version}${nodeOk ? " ok" : "（需要 ≥22.6）"}`);
+  if (!nodeOk) {
+    issues.push({
+      level: "error", area: "runtime",
+      message: `Node ${process.version} 低于 22.6，--experimental-strip-types 不可用`,
+      fix: "升级 Node 或设置 OW_NODE=<node≥22.6 的路径>",
+    });
+  }
+  const zstd = zstdStatus();
+  lines.push(`  zstd: 内置=${zstd.builtin ? "有" : "无"} 外部=${zstd.external ? "有" : "无"}`);
+  if (!zstd.builtin && !zstd.external) {
+    issues.push({
+      level: "warn", area: "runtime",
+      message: "Node 没有内置 zstd，也没有 zstd 命令；ow capture 无法读 dsh 会话",
+      fix: "升级 Node ≥22.15，或安装 zstd（brew install zstd / apt install zstd）",
+    });
+  }
+}
+
 function checkLauncher(issues: Issue[], lines: string[]): void {
   const p = join(homedir(), ".config", "qdoc", "bin", "ow");
-  let ok = false;
-  try { ok = existsSync(realpathSync(p)); } catch { /* 不存在 */ }
-  lines.push(`  ow 入口: ${p}（${ok ? "ok" : "缺失"}）`);
+  let target = "";
+  try { target = realpathSync(p); } catch { /* 缺失 */ }
+  const ok = Boolean(target) && existsSync(target);
+  lines.push(`  ow 入口: ${p}（${ok ? `ok → ${target}` : "缺失"}）`);
   if (!ok) {
     issues.push({
       level: "warn", area: "cli",
       message: "ow 启动器不存在，qdoc 技能里的裸 `ow` 会 command not found",
       fix: "跑 npm run install-skill（会创建 ~/.config/qdoc/bin/ow）",
+    });
+    return;
+  }
+  const repo = findRepoRoot();
+  if (repo && !target.startsWith(join(repo, "scripts", "ow"))) {
+    issues.push({
+      level: "warn", area: "cli",
+      message: `ow 入口没有指向当前仓库：${target}`,
+      fix: `npm run install-skill -- --force-launcher（或设置 OW_NODE 后保留自定义 wrapper）`,
     });
   }
 }
@@ -112,7 +163,11 @@ function checkToken(issues: Issue[], lines: string[]): void {
   const { token, source } = resolveToken();
   if (!token) {
     lines.push("  token: 未配置");
-    issues.push({ level: "warn", area: "token", message: "未配置 qdoc token，平台同步会跳过", fix: "echo qdoc_… > ~/.config/qdoc/token && chmod 600 ~/.config/qdoc/token" });
+    issues.push({
+      level: "warn", area: "token",
+      message: "未配置 qdoc token，平台同步会跳过",
+      fix: "echo qdoc_… > ~/.config/qdoc/token && chmod 600 ~/.config/qdoc/token",
+    });
     return;
   }
   let mode = "";
@@ -124,33 +179,49 @@ function checkToken(issues: Issue[], lines: string[]): void {
 }
 
 export async function runDoctor(args: ParsedArgs): Promise<number> {
-  const lines: string[] = ["环境自检：", ""];
+  const hostArg = flagString(args, "host") ?? "all";
+  if (!["all", "dsh", "pi"].includes(hostArg)) {
+    process.stderr.write(`未知宿主：${hostArg}（可选 all|dsh|pi）\n`);
+    return 2;
+  }
+  const hosts: HostName[] = hostArg === "all" ? ["dsh", "pi"] : [hostArg as HostName];
+  const lines: string[] = [`环境自检（host=${hostArg}）：`, ""];
   const issues: Issue[] = [];
 
-  lines.push("dsh：");
-  checkDshProfiles(issues, lines);
+  lines.push("运行时：");
+  checkRuntime(issues, lines);
 
-  lines.push("", "pi：");
-  checkPi(issues, lines);
+  if (hosts.includes("dsh")) {
+    lines.push("", "dsh：");
+    checkDshProfiles(issues, lines);
+  }
+  if (hosts.includes("pi")) {
+    lines.push("", "pi：");
+    checkPi(issues, lines);
+  }
 
   lines.push("", "CLI / 凭据：");
   checkLauncher(issues, lines);
   checkToken(issues, lines);
 
-  const drift = checkSkillDrift();
+  const drift = hostArg === "all" ? checkSkillDrift() : checkSkillDrift({ host: hosts[0] });
   lines.push("", "技能漂移：");
   if (!drift.repoFound) {
     lines.push("  仓库根未找到（npm 安装形态？），跳过");
   } else if (drift.drifted.length === 0) {
-    lines.push("  dsh/pi 与仓库一致");
+    lines.push(`  ${hosts.join("/")} 与仓库一致`);
   } else {
     lines.push(`  ${describeDrift(drift) ?? ""}`);
-    issues.push({ level: "warn", area: "skills", message: `技能漂移：${drift.drifted.map((d) => d.name).join("、")}`, fix: "npm run install-skill" });
+    issues.push({
+      level: "warn", area: "skills",
+      message: `技能漂移：${drift.drifted.map((d) => d.name).join("、")}`,
+      fix: `npm run install-skill -- --host ${hostArg}`,
+    });
   }
 
   const auto = readAutoSyncState();
   lines.push("", "自动检查：");
-  for (const h of ["dsh", "pi"]) {
+  for (const h of hosts) {
     const r = auto.hosts[h]?.lastResult;
     lines.push(`  ${h}: ${r ? `${localTime(new Date(r.checked_at)).slice(0, 16).replace("T", " ")}（平台新增 ${r.platform.created} / 更新 ${r.platform.updated} / 冲突 ${r.platform.conflicts.length}）` : "未检查"}`);
   }
@@ -165,6 +236,6 @@ export async function runDoctor(args: ParsedArgs): Promise<number> {
     }
   }
 
-  out(args, lines.join("\n"), { issues, drift, autoSync: auto });
+  out(args, lines.join("\n"), { issues, drift, autoSync: auto, host: hostArg });
   return issues.some((i) => i.level === "error") ? 1 : 0;
 }

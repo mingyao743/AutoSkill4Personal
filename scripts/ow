@@ -1,6 +1,7 @@
 #!/bin/sh
 # ow 稳定入口：无论从 PATH、软链还是仓库里调用，都能解析到仓库根。
 # install-skill 会把它软链到 ~/.config/qdoc/bin/ow。
+# OW_NODE 可指定 Node（例如 OW_NODE=/opt/homebrew/opt/node@24/bin/node）。
 set -eu
 
 SOURCE=$0
@@ -13,5 +14,15 @@ while [ -L "$SOURCE" ]; do
   esac
 done
 REPO_DIR=$(CDPATH= cd -P -- "$(dirname -- "$SOURCE")/.." && pwd)
+NODE_BIN=${OW_NODE:-node}
 
-exec node --experimental-strip-types "$REPO_DIR/packages/cli/src/main.ts" "$@"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+  echo "ow: 找不到 Node（OW_NODE=$NODE_BIN）。设置 OW_NODE 或把 node 加进 PATH。" >&2
+  exit 2
+fi
+if ! "$NODE_BIN" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>22||(a===22&&b>=6)?0:1)' 2>/dev/null; then
+  echo "ow: 需要 Node ≥22.6（当前 $("$NODE_BIN" -v 2>/dev/null || echo unknown)）。可用 OW_NODE 指定。" >&2
+  exit 2
+fi
+
+exec "$NODE_BIN" --experimental-strip-types "$REPO_DIR/packages/cli/src/main.ts" "$@"

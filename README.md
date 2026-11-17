@@ -53,15 +53,15 @@ ow doctor                              # 宿主接入自检（dsh 软链 / pi pa
 
 技能（`agent-skills/` 下含 SKILL.md 的目录）用 `npm run install-skill` 统一装到四家宿主，同时创建 `~/.config/qdoc/bin/ow`；`--check` 验漂移：
 
-| 宿主 | 技能目录 | MCP 接平台 |
+| 宿主 | 技能目录 | 接 qdoc 平台 |
 |---|---|---|
-| dsh（DeepSeek Harness） | `~/.dsh/skills` | 自带 MCP 客户端 |
-| pi | `~/.pi/agent/skills` | MCP |
+| dsh（DeepSeek Harness） | `~/.dsh/skills` | 自带 MCP 客户端 / `ow` CLI |
+| pi | `~/.pi/agent/skills` | **无内置 MCP**；走 adapter-pi 扩展 + `ow` CLI |
 | Qoder CN CLI | `~/.qoder-cn/skills` | `ow mcp-config --host qoder` 生成配置 |
 | CodeBuddy Code CLI | `~/.codebuddy/skills` | `ow mcp-config --host codebuddy` |
 | WorkBuddy 桌面版 | 技能市场上传 | `ow mcp-config --host workbuddy`（连接器 UI 粘贴） |
 
-MCP 配置三家同构（`mcpServers` + http + headers），`alwaysAllow` 只放只读工具，写操作保留逐次确认。给新宿主单独发 token，可单独吊销。
+Qoder / CodeBuddy / WorkBuddy 的 MCP 配置同构（`mcpServers` + http + headers），`alwaysAllow` 只放只读工具，写操作保留逐次确认。**pi 0.84.x 没有内置 MCP**，`ow mcp-config --host pi` 会直接说明不需要配置。给新宿主单独发 token，可单独吊销。
 
 **每日首次访问自动检查**：当天第一次有用户轮次时，宿主会做一次仓库技能漂移检查 + 平台技能拉取（状态在 `~/.config/qdoc/auto-sync.json`）。手改过的技能不会被覆盖；结果看 `ow status`。设计见 [AUTO_CHECK_2026-11-17.md](design/AUTO_CHECK_2026-11-17.md)。
 
@@ -71,21 +71,33 @@ MCP 配置三家同构（`mcpServers` + http + headers），`alwaysAllow` 只放
 - qdoc 平台：token 放 `~/.config/qdoc/token`（平台分权限：`todo:read/write` 等 scope，旧 token 缺权限要重新生成勾选）
 - `KB_DIR` 可覆盖知识数据目录（默认 `~/.pi/agent/data/autoskill/knowledge/`，**不在 checkout 内**——pi update 会 `git clean -fdx` 清空包内数据）
 
-## 快速开始
+## 快速开始（pi / Linux 实测路径）
+
+**pi 用户不需要 npm/pnpm install**：`ow` 和扩展都只用 Node 内置模块。
 
 ```bash
-# 1. 装 pi 包（AutoSkill 是标准 pi package，manifest 在 adapter-pi 子包）
-pi install ./AutoSkill4Personal/packages/adapter-pi     # 本地目录
-pi install git:github.com/<you>/AutoSkill4Personal/packages/adapter-pi
+# 0. Node ≥ 22.6；ow capture 读 dsh 会话还需要内置 zstd（Node ≥22.15）或 zstd 命令
+node --version
+which zstd || echo "没有 zstd：只能用内置 zstd（Node ≥22.15）"
 
-# 2. 验证：会话里跑 /kb（知识库状态）或调 kb_doctor（自检 LLM 链路）
+# 1. 装 pi 包：用仓库根，不要装 adapter-pi 子包
+#    （root manifest 同时提供 extension + agent-skills，相对路径稳定）
+pi install /path/to/AutoSkill4Personal
 
-# 3. qdoc 分发侧（可选，需要平台 token）
-npm run ow --silent -- init && npm run ow --silent -- link   # 初始化 vault + 软链
-npm run ow --silent -- publish --dry-run                      # 门禁预检
+# 2. 一键安装：预检 → init vault → 平台技能 → 仓库技能 → ow launcher → drift
+node scripts/setup.ts --host pi
+
+# 3. 重启 pi；验证
+ow doctor --host pi
 ```
 
-前置：Node ≥ 22.6（`--experimental-strip-types`）。装完即全自动：谈出有价值内容 agent 自主采集，收尾说一句"收割一下本会话知识"，退出自动终采。
+`setup.ts` 也可用于 dsh：`node scripts/setup.ts --host dsh`，`--host all` 装 dsh+pi。
+qoder / codebuddy 仍用 `npm run install-skill -- --host qoder` 等单独装。
+
+**Node 22.14 说明**：`ow` 的 status/sync/doctor 可直接用；capture 会自动退回外部 `zstd -dc`。
+如果系统 `node` 太旧，用 `OW_NODE=/path/to/node scripts/ow ...` 指定。
+
+装完即全自动：当天第一次用户轮次会触发技能检查；会话满 30 轮自动编译知识页。
 
 ## 目录结构
 
@@ -96,6 +108,7 @@ packages/cli/          # ow 命令行（capture/publish/query/doc/todo/sync/mcp-
 packages/adapter-pi/   # pi 宿主适配层（extensions 入口 + skills 约定）
 packages/adapter-dsh/  # dsh 宿主适配层
 .qdoc/                 # 知识页 vault（index/hot/references/skills/journal + .publish/ 台账）
+scripts/setup.ts          # 一键宿主安装（pi/dsh）
 scripts/install-skill.ts  # 四宿主技能安装/漂移检查
 design/                # 原理与设计文档（见下）
 ```

@@ -5,13 +5,16 @@
 ## 快速开始
 
 ```bash
-# 1. 在你的项目里初始化
+# 0. pi/dsh 用户直接跑一键安装（无需 npm install）
+node <repo>/scripts/setup.ts --host pi
+
+# 1. 或手动：在你的项目里初始化
 cd ~/my-project
 node --experimental-strip-types <repo>/packages/cli/src/main.ts init
 
-# 2. 配 token（三级查找，任选一个）
-export QDOC_TOKEN=qdoc_xxx
-# 或 echo qdoc_xxx > ~/.config/qdoc/token && chmod 600 ~/.config/qdoc/token
+# 2. 配 token（写入文件，不要放命令行/脚本，避免进 shell history）
+mkdir -p ~/.config/qdoc
+printf '%s' 'qdoc_xxx' > ~/.config/qdoc/token && chmod 600 ~/.config/qdoc/token
 
 # 3. 干活。满 30 轮自动编译，或随时说「小q 沉淀」
 
@@ -25,7 +28,10 @@ ow query "关键词"
 挂成命令（可选）：
 
 ```bash
-alias ow='node --experimental-strip-types /path/to/repo/packages/cli/src/main.ts'
+# setup / install-skill 会创建 ~/.config/qdoc/bin/ow；把该目录加进 PATH
+export PATH="$HOME/.config/qdoc/bin:$PATH"
+# 或自定义 Node：
+# OW_NODE=/opt/homebrew/opt/node@24/bin/node ow status
 ```
 
 ## 命令
@@ -42,7 +48,7 @@ alias ow='node --experimental-strip-types /path/to/repo/packages/cli/src/main.ts
 | `ow link` | 建 `wiki -> .qdoc` 软链 | 否 |
 | `ow maintain` | 重建 index / hot | 否 |
 | `ow promote` | 把够格的知识页升级成技能 | 否 |
-| `ow doctor` | 宿主接入自检（dsh 软链 / pi package / ow 入口 / token / 漂移） | 否 |
+| `ow doctor` | 宿主接入自检（`--host pi` 只看目标宿主；Node/zstd/软链/token/漂移） | 否 |
 
 常用选项：`--vault <dir>` `--dry-run` `--json` `--help`
 
@@ -74,9 +80,10 @@ ow capture --session <pi.jsonl> --agent pi --plan   # pi 会话手动入口
 ### 技能同步的四种结果
 
 ```bash
-ow sync --light                  # 29ms，只看平台有哪些（查不出内容更新）
-ow sync --direction pull         # 全量，拉/更新本地技能
-ow sync --direction push         # 推本地改动（内容一致会自动跳过）
+ow sync --host pi --light                  # 29ms，只看平台有哪些
+ow sync --host pi --direction pull         # 全量，拉/更新 pi 本地技能
+ow sync --host pi --direction push         # 推 pi 本地改动（内容一致会自动跳过）
+ow sync --host all --direction pull --dry-run  # 多宿主预演
 ```
 
 | 结果 | 含义 | 该做什么 |

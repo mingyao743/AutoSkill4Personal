@@ -11,7 +11,7 @@
  */
 import {
   chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
-  renameSync, rmSync, statSync, symlinkSync, writeFileSync,
+  readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -331,19 +331,41 @@ export function reinstallSafeSkills(opts: {
   return results;
 }
 
-/** 把 scripts/ow 软链到 ~/.config/qdoc/bin/ow（失败不致命，调用方决定是否提示） */
-export function installOwLauncher(repoRoot: string): { path: string; ok: boolean; error?: string } {
+/**
+ * 把 scripts/ow 软链到 ~/.config/qdoc/bin/ow。
+ *
+ * **默认不覆盖已有入口**：老机器上可能有用户自定义的 wrapper（例如指向
+ * brew node@24）。只有 `force:true` 才替换。失败不致命，调用方决定是否提示。
+ */
+export function installOwLauncher(
+  repoRoot: string,
+  opts: { force?: boolean } = {},
+): { path: string; ok: boolean; preserved?: boolean; error?: string } {
   const dir = join(homedir(), ".config", "qdoc", "bin");
   const link = join(dir, "ow");
   const target = join(repoRoot, "scripts", "ow");
   try {
     mkdirSync(dir, { recursive: true });
-    try {
-      lstatSync(link);
-      rmSync(link, { force: true }); // 删软链本身，不删 target
-    } catch {
-      /* 不存在 */
+    let exists = false;
+    try { lstatSync(link); exists = true; } catch { /* 不存在 */ }
+
+    if (exists) {
+      let same = false;
+      let ours = false;
+      try {
+        same = realpathSync(link) === realpathSync(target);
+        const raw = readlinkSync(link).replace(/\\/g, "/");
+        ours = raw.endsWith("/scripts/ow") || raw.endsWith("scripts/ow");
+      } catch { /* 断链/普通文件 */ }
+      if (same) {
+        try { chmodSync(target, 0o755); } catch { /* 可忽略 */ }
+        return { path: link, ok: true, preserved: true };
+      }
+      // 自定义 wrapper 默认保留；指向旧仓库 scripts/ow 的软链是我们自己的，可自动修
+      if (!opts.force && !ours) return { path: link, ok: true, preserved: true };
+      rmSync(link, { force: true }); // 删软链/普通文件本身，不删 target
     }
+
     symlinkSync(target, link);
     try { chmodSync(target, 0o755); } catch { /* 已有可执行位即可 */ }
     return { path: link, ok: true };
