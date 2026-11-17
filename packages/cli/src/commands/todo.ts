@@ -17,7 +17,7 @@ import { flagBool, flagString, type ParsedArgs } from "../args.ts";
 const HELP = `ow todo —— 平台待办（纯透传）
 
 用法：
-  ow todo list [--all] [--due YYYY-MM-DD] [--project <名|id>] [--json]
+  ow todo list [--all] [--due YYYY-MM-DD] [--project <名|id>] [--limit N] [--json]
   ow todo add <标题> [--priority 0-3] [--due YYYY-MM-DD] [--project <名|id>] [--note 说明]
   ow todo done <id>          完成待办
   ow todo undone <id>        取消完成
@@ -68,10 +68,13 @@ async function todoDispatch(args: ParsedArgs): Promise<number> {
 
   if (sub === "list") {
     const projectRef = flagString(args, "project");
+    const all = flagBool(args, "all");
+    const limit = Math.min(Math.max(Number(flagString(args, "limit") ?? (all ? 200 : 50)), 1), 200);
     const items = await client.listTodoItems({
-      includeDone: flagBool(args, "all"),
+      includeDone: all,
       dueBefore: flagString(args, "due"),
       projectId: projectRef ? await resolveProject(client, projectRef) : undefined,
+      limit,
     });
     const open = items.filter((t) => !t.is_done).length;
     out(args, `${formatTodoItems(items)}\n\n共 ${items.length} 条（未完成 ${open}）`, { items });
