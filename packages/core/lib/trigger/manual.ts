@@ -1,5 +1,6 @@
 /**
- * 手动触发：解析 `小q` / `qdoc` 唤醒词与意图。
+ * 手动触发：解析 `小q` / `qdoc` / `xq` 唤醒词与意图（`xq` 为纯 ASCII 别名，
+ * 中文输入法下不必切英文模式）。
  *
  * 规则（方案 §6.2）——**判定从严，拿不准就不触发**：
  *  1. 唤醒词必须在句首，或独立成词（前后是空白/标点）
@@ -31,7 +32,7 @@ export interface ParseResult {
   reason: string;
 }
 
-const WAKE_WORDS = ["小q", "小Q", "qdoc", "QDoc", "QDOC"];
+const WAKE_WORDS = ["小q", "小Q", "qdoc", "QDoc", "QDOC", "xq", "XQ"];
 
 /** 动词 → 意图。顺序有意义：长词优先（「发布技能」要在「发布」之前） */
 const VERB_MAP: Array<{ verbs: string[]; intent: Intent }> = [
@@ -115,7 +116,7 @@ export const INTENT_HELP: Record<Intent, string> = {
 /** 帮助文本（用户问「小q 能干什么」时播报） */
 export function helpText(): string {
   return [
-    "可用命令（唤醒词 `小q` 或 `qdoc`，必须在句首）：",
+    "可用命令（唤醒词 `小q` / `qdoc` / `xq`，必须在句首）：",
     ...Object.values(INTENT_HELP).filter((s) => !s.startsWith("（")),
     "",
     "唤醒词后面跟名词不算命令（如「小q 这个功能怎么做」是普通提问）。",
