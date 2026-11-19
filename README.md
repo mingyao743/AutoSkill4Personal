@@ -67,6 +67,8 @@ ow doctor --host opencode
 
 **qdoc = qdoc.chat 平台 + ow CLI + qdoc 技能** 三件套，把仓库里的知识页与 skill 变成所有 agent 随查随用的在线资产：
 
+![qdoc.chat —— 你的个人知识库，由 AI 驱动：知识集中管理，技能持续复用](assets/qdoc-landing.png)
+
 - **平台**（qdoc.chat）：知识文档（发布/在线查询/改名/tag）+ 待办（todo）+ 技能市场（双向同步）+ 仪表盘。关键特性：**只有发布、没有删除**（下线只能打墓碑），发出去就在线；doc_id 是 UUID，台账记录认领关系，发现不可达自动**自愈重建**；文档可见性跟账号走，token 按功能分权限（`todo:read/write` 等 scope）
 - **ow CLI**（`packages/cli`）：仓库 vault（`.qdoc/`）到平台的**唯一正道**——门禁、去重、台账都在里面，手写页面会绕过全部检查。发布过 7 道本地门禁；查询本地优先 + 平台兜底、按词降级重试；待办纯透传；`mcp-config` 一键生成各宿主的 MCP 接入配置
 - **qdoc 技能**（`agent-skills/qdoc`）：agent 侧的使用说明书，教 agent 正确用前两样——唤醒词、**平台事实卡**（tag ≤20 字符静默截断、`tools/list` 可能滞后、技能落库默认未启用……）、排错 playbook。五个宿主都已安装
