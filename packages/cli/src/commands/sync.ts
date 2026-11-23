@@ -14,6 +14,7 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { QdocMcpClient } from "../../../core/lib/publish/mcp.ts";
 import { scanSkillsDir, pushSkill, checkEligibility, extractSkillDescription } from "../../../core/lib/publish/skill.ts";
 import { pullSkills, checkLight, describePull, readSkillDir, extractSkillFiles } from "../../../core/lib/sync/pull-skill.ts";
@@ -32,6 +33,17 @@ const SYNC_HOSTS: HostName[] = ["dsh", "pi", "qoder", "codebuddy", "opencode"];
 export function localSkillsDir(host: string): string {
   if (host in HOST_DIRS) return hostSkillDir(host as HostName);
   return join(homedir(), ".dsh", "skills");
+}
+
+/** 读取 no-push 名单：~/.config/qdoc/no-push.json（JSON 数组）里的 skill 不会被推送到平台 */
+function readNoPushList(): Set<string> {
+  try {
+    const raw = readFileSync(join(homedir(), ".config", "qdoc", "no-push.json"), "utf-8");
+    const list = JSON.parse(raw);
+    return new Set(Array.isArray(list) ? list : []);
+  } catch {
+    return new Set();
+  }
 }
 
 export async function runSync(args: ParsedArgs): Promise<number> {
@@ -93,8 +105,13 @@ export async function runSync(args: ParsedArgs): Promise<number> {
   // ---------- 推：本地 → 平台 ----------
   if (direction === "both" || direction === "push") {
     lines.push("", `推送（本地 ${pushRoot}；多宿主只以 ${hostList[0]} 为准）：`);
+    const noPush = readNoPushList();
     const local = scanSkillsDir(pushRoot).filter((s) => !only || s.name === only);
     for (const s of local) {
+      if (noPush.has(s.name)) {
+        lines.push(`⊘ ${s.name}：跳过推送（no-push 名单）`);
+        continue;
+      }
       const elig = checkEligibility(s);
       if (!elig.ok) {
         lines.push(`⊘ ${s.name}：不可推（${elig.reasons.join("；")}）`);
