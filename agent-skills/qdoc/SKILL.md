@@ -64,6 +64,8 @@ ow status --json
 | 技能 description 由**平台自己按行解析** frontmatter，`update_skill` 传的 description 参数**不生效** | SKILL.md 的 description 必须写成**单行**（可带引号）；YAML 折叠标量 `>` 会被存成字面的 `">"` |
 | `upload_document` 支持 PDF/DOCX/MD/TXT，单文件 ≤20MB；平台保留原件 + 解析 Markdown，`read_document_content(format=markdown)` 读解析结果 | 没有“替换原件”API：重传会新建文档；同一文件先查台账，别重复传。`is_safe=true` 不进入 AI 检索 |
 | `create_document` / `update_document` / `upload_document` 都有 `sensitive_policy`：`block`（默认）/`warn`/`allow` | 平台扫描比本地密钥门禁更广（PII 等）；`block` 会拒绝，`warn` 返回 `sensitive_warnings`，不是本地门禁能替代的 |
+| 文档里的图片**一律走 `upload_document_image`**：先传图拿 **OSS URL**，再用 Markdown `![](OSS URL)` 插入正文 | **禁止把 base64 写进正文**；上传工具不可用就留占位（如 `![图：待上传]()`）并文字说明，绝不内嵌 base64 |
+| 飞书文档含**画板**时：导出为截图 → `upload_document_image` → 用 OSS URL 插入 Markdown | 画板不是图片对象，直接复制会丢；转截图再传 |
 
 ## 命令速查
 
@@ -95,6 +97,8 @@ ow review                 # 处理待确认（交互）
 **「发布被拦」** —— 跑 `ow publish --dry-run` 看是哪道本地门禁；平台敏感检测只在真实发布时发生。收到「平台敏感检测拒绝」时不要连续重试，先改正文，或显式评估后用 `--sensitive-policy warn`。
 
 **「PDF/DOCX 上传失败」** —— 先看扩展名和 20MB 上限；`block` 策略被平台拒绝时不会入库，可按提示修改原件，或显式 `--sensitive-policy warn`（会写入并返回 warnings）。
+
+**「文档要插图 / 飞书画板」** —— 图片调 `upload_document_image` 拿 OSS URL，正文用 `![](OSS URL)` 引用；飞书文档里的画板先导出成截图再传。**绝不把 base64 写进正文**；上传工具不可用时留占位并说明。
 
 **「技能推上去看不见」** —— `import_skill_from_files` 落库是**未启用**状态，`list_available_skills` 只返回已启用的。要人去 qdoc.chat 技能页点「启用」。
 
